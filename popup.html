@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Daraz Price Tracker</title>
+  <!-- Google Fonts — display=swap ensures text renders with system fallbacks while fonts load -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- ═══════════════════════════════════════════
+         MAIN VIEW
+    ═══════════════════════════════════════════ -->
+    <div id="main-view">
+
+      <header class="header">
+        <div class="brand">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+          <span class="brand-name">Daraz Tracker</span>
+        </div>
+        <div class="header-actions">
+          <button id="refresh-btn" class="icon-btn" title="Reload from storage">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
+            </svg>
+          </button>
+          <button id="settings-btn" class="icon-btn" title="Settings">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Live product card -->
+      <div id="active-card" class="active-card hidden">
+        <div class="active-top">
+          <div class="active-badge"><span class="dot"></span>Live</div>
+          <button id="pin-btn" class="pin-btn">
+            <svg id="pin-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            <span id="pin-label">Pin to Favorites</span>
+          </button>
+        </div>
+        <div class="active-body">
+          <div class="active-img-wrap"><img id="active-img" src="" alt=""></div>
+          <div class="active-info">
+            <div id="active-title" class="active-title">—</div>
+            <div class="active-prices">
+              <span id="active-price" class="active-price">—</span>
+              <span id="active-orig" class="active-orig hidden">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="history">History (<span id="hist-count">0</span>)</button>
+        <button class="tab-btn" data-tab="favs">Favorites (<span id="fav-count">0</span>)</button>
+      </div>
+
+      <!-- History pane -->
+      <div id="pane-history" class="pane">
+        <div id="history-list"></div>
+        <div id="history-empty" class="empty hidden">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <p>No history yet.</p>
+          <small>Visit any Daraz product page and it will appear here automatically.</small>
+        </div>
+      </div>
+
+      <!-- Favorites pane -->
+      <div id="pane-favs" class="pane hidden">
+        <div id="favs-list"></div>
+        <div id="favs-empty" class="empty hidden">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <p>No favorites yet.</p>
+          <small>Click the star on any history item to pin it.</small>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        100% private — all data stored locally only
+      </footer>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════
+         DETAIL VIEW  (price graph)
+    ═══════════════════════════════════════════ -->
+    <div id="detail-view" class="hidden">
+      <header class="header">
+        <button id="back-btn" class="icon-btn" title="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="brand-name" style="font-size:.95rem">Price History</span>
+        <a id="detail-visit-btn" href="#" target="_blank" class="visit-btn">
+          Visit
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </a>
+      </header>
+
+      <div class="detail-summary">
+        <div class="detail-thumb-wrap"><img id="detail-img" src="" alt=""></div>
+        <div class="detail-info">
+          <div id="detail-title" class="detail-title"></div>
+          <div class="detail-price-row">
+            <span id="detail-price" class="detail-price"></span>
+            <span id="detail-orig" class="detail-orig hidden"></span>
+            <span id="detail-discount" class="badge sale hidden"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-label">Lowest</div>
+          <div id="stat-low" class="stat-value low">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Highest</div>
+          <div id="stat-high" class="stat-value high">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Tracked</div>
+          <div id="stat-points" class="stat-value">—</div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <div class="chart-title">Price over time</div>
+        <svg id="price-chart" class="price-chart" viewBox="0 0 340 120" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#818cf8" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div id="chart-labels" class="chart-labels"></div>
+        <div id="chart-no-data" class="chart-no-data hidden">
+          Not enough price data yet.<br>
+          <small>Revisit this product tomorrow to build history.</small>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        100% private — all data stored locally only
+      </footer>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════
+         SETTINGS VIEW
+    ═══════════════════════════════════════════ -->
+    <div id="settings-view" class="hidden">
+
+      <header class="header">
+        <button id="settings-back-btn" class="icon-btn" title="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="brand-name" style="font-size:.95rem">Settings</span>
+        <div style="width:32px"></div><!-- spacer -->
+      </header>
+
+      <div class="settings-body">
+
+        <!-- Refresh Interval -->
+        <div class="setting-section">
+          <div class="setting-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+            Auto-Refresh Interval
+          </div>
+          <div class="setting-desc">How often to check favorite item prices in the background</div>
+          <div class="pill-group" id="interval-group">
+            <button class="pill" data-minutes="60">1h</button>
+            <button class="pill" data-minutes="180">3h</button>
+            <button class="pill active" data-minutes="360">6h</button>
+            <button class="pill" data-minutes="720">12h</button>
+            <button class="pill" data-minutes="1440">24h</button>
+          </div>
+        </div>
+
+        <div class="setting-divider"></div>
+
+        <!-- Status -->
+        <div class="setting-section">
+          <div class="setting-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Refresh Status
+          </div>
+          <div class="status-box">
+            <div class="status-row">
+              <span class="status-key">Last refreshed</span>
+              <span id="last-refresh-val" class="status-val">Never</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Next refresh</span>
+              <span id="next-refresh-val" class="status-val">—</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Favorites tracked</span>
+              <span id="fav-tracked-val" class="status-val">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-divider"></div>
+
+        <!-- History Limit -->
+        <div class="setting-section">
+          <div class="setting-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            History Limit
+          </div>
+          <div class="setting-desc">Maximum number of recently visited items to keep in History</div>
+          <div class="pill-group" id="history-limit-group">
+            <button class="pill" data-limit="10">10</button>
+            <button class="pill active" data-limit="20">20</button>
+            <button class="pill" data-limit="50">50</button>
+            <button class="pill" data-limit="100">100</button>
+          </div>
+          <div class="history-limit-note">
+            Currently storing <span id="current-history-count">0</span> items
+          </div>
+        </div>
+
+        <div class="setting-divider"></div>
+
+        <!-- Manual refresh -->
+        <div class="setting-section">
+          <div class="setting-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Manual Refresh
+          </div>
+          <div class="setting-desc">Force an immediate price check on all favorites right now</div>
+          <button id="refresh-now-btn" class="refresh-now-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+            <span id="refresh-now-label">Refresh Now</span>
+          </button>
+        </div>
+
+        <div class="setting-divider"></div>
+
+        <!-- Notifications -->
+        <div class="setting-section">
+          <div class="setting-label-row">
+            <div class="setting-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              Price Drop Alerts
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="notif-toggle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="setting-desc">Show a desktop notification when a favorite's price drops</div>
+        </div>
+
+        <div class="setting-divider"></div>
+
+        <!-- Clear data -->
+        <div class="setting-section">
+          <div class="setting-label danger-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Clear All Data
+          </div>
+          <div class="setting-desc">Wipe all history, favorites, and price records from your device</div>
+          <button id="clear-data-btn" class="clear-btn">Clear All Data</button>
+        </div>
+
+      </div><!-- /.settings-body -->
+
+      <footer class="footer">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        100% private — all data stored locally only
+      </footer>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         CUSTOM CONFIRM DIALOG
+         (window.confirm is blocked in all Chrome extension popups)
+    ═══════════════════════════════════════════ -->
+    <div id="confirm-overlay" class="confirm-overlay hidden" role="dialog" aria-modal="true">
+      <div class="confirm-box">
+        <div class="confirm-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </div>
+        <div class="confirm-title">Clear All Data?</div>
+        <div class="confirm-msg">This will permanently delete all tracked items, price history, and favorites from your device. This cannot be undone.</div>
+        <div class="confirm-actions">
+          <button id="confirm-cancel" class="confirm-btn confirm-btn-cancel">Cancel</button>
+          <button id="confirm-ok" class="confirm-btn confirm-btn-ok">Yes, Clear All</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.app -->
+  <script src="popup.js"></script>
+</body>
+</html>

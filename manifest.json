@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Daraz Price Tracker",
+  "version": "2.0.0",
+  "description": "Track Daraz prices privately on your machine.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.daraz.pk/*",
+    "https://*.daraz.lk/*",
+    "https://*.daraz.com.bd/*",
+    "https://*.daraz.com.np/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.daraz.pk/*",
+        "https://*.daraz.lk/*",
+        "https://*.daraz.com.bd/*",
+        "https://*.daraz.com.np/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon48.png"
+  }
+}
