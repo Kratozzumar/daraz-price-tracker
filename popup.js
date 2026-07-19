@@ -328,11 +328,11 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
   pricing.className = 'item-pricing';
   const priceEl = document.createElement('div');
   priceEl.className = 'item-price';
-  priceEl.textContent = fmt(product.price || product.currentPrice);
+  priceEl.textContent = fmt(product.currentPrice || product.price);
   pricing.appendChild(priceEl);
 
   const orig = product.originalPrice || 0;
-  const curr = product.price || product.currentPrice || 0;
+  const curr = product.currentPrice || product.price || 0;
   if (orig > curr) {
     const origEl = document.createElement('div');
     origEl.className = 'item-orig';

@@ -85,8 +85,9 @@
         // If it's a favorite, update price there too
         if (favorites[key]) {
           const fav = favorites[key];
-          const oldPrice = fav.currentPrice;
+          const oldPrice = fav.currentPrice || fav.price;
           fav.currentPrice = product.price;
+          fav.price = product.price;
           fav.originalPrice = product.originalPrice;
           fav.imageUrl = product.imageUrl;
           fav.lastUpdated = product.lastUpdated;
