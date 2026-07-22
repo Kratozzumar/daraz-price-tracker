@@ -140,103 +140,42 @@ function parseOriginalPriceFromHtml(html) {
   return null;
 }
 
-// ── Tab-based price fetch (primary, most reliable) ────────────────────────
-// Opens the product page in a real background tab so content.js runs naturally.
-// This bypasses all bot-detection since it uses a real browser session.
-function fetchPriceViaTab(fav) {
-  return new Promise((resolve) => {
-    const url = fav.url;
-    if (!url || !url.includes('daraz')) return resolve(null);
-
-    const timeout = setTimeout(() => {
-      // Clean up listener and tab if it took too long
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      if (tabId) chrome.tabs.remove(tabId).catch(() => {});
-      console.warn('[DarazBG] Tab fetch timed out for:', fav.title);
-      resolve(null);
-    }, 30000); // 30s timeout
-
-    let tabId = null;
-
-    function onUpdated(updatedTabId, changeInfo) {
-      if (updatedTabId !== tabId || changeInfo.status !== 'complete') return;
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-
-      // Wait 4s for content.js to extract and save the price
-      setTimeout(async () => {
-        try {
-          // Read the updated favorites from storage (content.js writes here)
-          const data = await chrome.storage.local.get('favorites');
-          const updatedFavs = data.favorites || {};
-          const key = fav.key || `${fav.itemId}_${fav.skuId}`;
-          const updatedFav = updatedFavs[key];
-
-          clearTimeout(timeout);
-          chrome.tabs.remove(tabId).catch(() => {});
-
-          if (updatedFav && updatedFav.currentPrice) {
-            resolve({
-              price: updatedFav.currentPrice,
-              originalPrice: updatedFav.originalPrice || updatedFav.currentPrice,
-              source: 'tab',
-              alreadySaved: true  // content.js already saved it
-            });
-          } else {
-            resolve(null);
-          }
-        } catch (err) {
-          clearTimeout(timeout);
-          chrome.tabs.remove(tabId).catch(() => {});
-          resolve(null);
-        }
-      }, 5000);
-    }
-
-    chrome.tabs.onUpdated.addListener(onUpdated);
-
-    // Create tab in background (not active)
-    chrome.tabs.create({ url, active: false }, (tab) => {
-      if (chrome.runtime.lastError || !tab) {
-        clearTimeout(timeout);
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        resolve(null);
-        return;
-      }
-      tabId = tab.id;
-      console.log('[DarazBG] Opened background tab for:', fav.title);
-    });
-  });
-}
-
-// ── Fetch fallback (raw HTML, less reliable) ──────────────────────────────
-async function fetchPriceViaHttp(fav) {
+// ── Fetch product page and extract price via HTTP ─────────────────────────
+async function fetchProductPrice(fav) {
   const url = fav.url;
   if (!url || !url.includes('daraz')) return null;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
     const response = await fetch(url, {
       signal: controller.signal,
+      credentials: 'include',  // Send cookies for better results
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
+        'Cache-Control': 'no-cache',
       }
     });
     clearTimeout(timeoutId);
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn('[DarazBG] HTTP', response.status, 'for', fav.title);
+      return null;
+    }
 
     const html = await response.text();
     const result = parsePriceFromHtml(html);
     const origPrice = parseOriginalPriceFromHtml(html);
     if (result) {
+      console.log('[DarazBG] Price found via', result.source, 'for:', fav.title, '→', result.price);
       return { price: result.price, originalPrice: origPrice || result.price, source: result.source };
     }
+    console.warn('[DarazBG] No price found in HTML for:', fav.title);
     return null;
   } catch (err) {
     clearTimeout(timeoutId);
+    console.warn('[DarazBG] Fetch error for', fav.title, ':', err.name === 'AbortError' ? 'timeout' : err.message);
     return null;
   }
 }
@@ -262,30 +201,10 @@ async function refreshAllFavorites() {
 
     // Stagger requests to avoid rate-limiting
     if (keys.indexOf(key) > 0) {
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 3000));
     }
 
-    // Try tab-based fetch first (most reliable), then fall back to HTTP
-    let result = await fetchPriceViaTab(fav);
-
-    // If tab approach already saved the price, re-read favorites and continue
-    if (result && result.alreadySaved) {
-      console.log('[DarazBG] Tab refresh succeeded for:', fav.title, '→', result.price);
-      // Re-read favorites since content.js may have updated them
-      const freshData = await chrome.storage.local.get('favorites');
-      const freshFavs = freshData.favorites || {};
-      if (freshFavs[key]) {
-        favorites[key] = freshFavs[key];
-      }
-      updatedCount++;
-      continue;
-    }
-
-    // Fall back to HTTP fetch
-    if (!result) {
-      console.log('[DarazBG] Tab fetch failed, trying HTTP for:', fav.title);
-      result = await fetchPriceViaHttp(fav);
-    }
+    const result = await fetchProductPrice(fav);
 
     if (!result) {
       console.log('[DarazBG] Could not fetch price for:', fav.title);
