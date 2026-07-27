@@ -171,6 +171,34 @@
     }
   }, 1500);
 
+  // Watch for price changes in DOM (variant/color switches)
+  let priceChangeTimer = null;
+  let lastSeenPrice = '';
+  const priceObserver = new MutationObserver(() => {
+    const priceEl =
+      document.querySelector('.pdp-price_color_orange') ||
+      document.querySelector('[class*="pdp-price"]:not([class*="deleted"])') ||
+      document.querySelector('.notranslate') ||
+      document.querySelector('[class*="price_current"]') ||
+      document.querySelector('[class*="current-price"]');
+    if (!priceEl) return;
+    const currentText = priceEl.innerText.trim();
+    if (currentText && currentText !== lastSeenPrice) {
+      lastSeenPrice = currentText;
+      clearTimeout(priceChangeTimer);
+      priceChangeTimer = setTimeout(() => {
+        console.log('[DarazTracker] Price change detected in DOM:', currentText);
+        run();
+      }, 1000);
+    }
+  });
+  // Start observing the product detail area for changes
+  const targetNode = document.querySelector('.pdp-mod-product-badge-wrapper') ||
+                     document.querySelector('[class*="pdp-mod-product"]') ||
+                     document.querySelector('#module_product_detail') ||
+                     document.body;
+  priceObserver.observe(targetNode, { childList: true, subtree: true, characterData: true });
+
   // Listen for popup asking for current page data
   chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     if (msg.action === 'get_current_product') {

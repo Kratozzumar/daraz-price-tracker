@@ -471,18 +471,32 @@ document.getElementById('settings-back-btn').addEventListener('click', () => sho
 // Settings button
 document.getElementById('settings-btn').addEventListener('click', showSettings);
 
-// Refresh button — fetch latest prices from Daraz
+// Refresh button — re-extract current page price + fetch all favorites
 document.getElementById('refresh-btn').addEventListener('click', async () => {
   const btn = document.getElementById('refresh-btn');
   if (btn.disabled) return;
 
-  // Show spinning animation
   btn.disabled = true;
   btn.classList.add('spinning');
   btn.title = 'Refreshing prices...';
 
   try {
-    // Tell background to fetch fresh prices from Daraz
+    // Step 1: If on a Daraz product page, re-inject content.js to capture current price
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url && /daraz\.(pk|lk|com\.bd|com\.np)\/products\//.test(tab.url)) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        // Wait a moment for content.js to extract and save
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (e) {
+        console.warn('Could not re-inject content.js:', e);
+      }
+    }
+
+    // Step 2: Background refresh all favorites via HTTP
     await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({ action: 'refresh_now' }, (response) => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
@@ -496,7 +510,6 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
   // Reload UI with updated data
   await loadAll();
 
-  // Stop spinner
   btn.disabled = false;
   btn.classList.remove('spinning');
   btn.title = 'Refresh prices from Daraz';
