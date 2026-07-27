@@ -85,9 +85,17 @@
     let imageUrl = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
     if (imageUrl.startsWith('//')) imageUrl = 'https:' + imageUrl;
 
-    const inStock = !document.querySelector('.pdp-mod-soldOut') && 
-                    !document.querySelector('button[disabled][class*="add-to-cart"]') &&
-                    !document.body.innerText.match(/Currently Unavailable|Out of Stock|Sold Out/i);
+    const soldOutEl = document.querySelector('.pdp-mod-soldOut') ||
+                       document.querySelector('[class*="soldout"]') ||
+                       document.querySelector('[class*="sold-out"]');
+    const buyBtn = document.querySelector('.pdp-button_theme_orange') ||
+                   document.querySelector('button[data-spm-anchor-id*="add_to_cart"]') ||
+                   document.querySelector('button.add-to-cart-buy-now-btn');
+    const buyBtnDisabled = buyBtn ? buyBtn.disabled : false;
+    // Only check specific unavailable labels — NOT body text (avoids 'Almost sold out' false positive)
+    const unavailLabel = document.querySelector('.pdp-mod-product-unavailable') ||
+                         document.querySelector('[class*="currently-unavailable"]');
+    const inStock = !soldOutEl && !buyBtnDisabled && !unavailLabel;
     
     const promotions = extractPromotions();
 

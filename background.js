@@ -222,7 +222,11 @@ async function fetchProductPrice(entry) {
     const result = parsePriceFromHtml(html);
     const origPrice = parseOriginalPriceFromHtml(html);
     const htmlLower = html.toLowerCase();
-    const inStock = !htmlLower.includes('sold-out') && !htmlLower.includes('out of stock') && !htmlLower.includes('currently unavailable');
+    // Check for actual sold-out markers — avoid 'almost sold out' false positives
+    const hasSoldOutClass = /class="[^"]*pdp-mod-soldout[^"]*"/i.test(html) ||
+                            /class="[^"]*pdp-mod-product-unavailable[^"]*"/i.test(html);
+    const hasUnavailableText = />\s*currently unavailable\s*</i.test(html);
+    const inStock = !hasSoldOutClass && !hasUnavailableText;
 
     if (result) {
       console.log('[DarazBG] Price found via', result.source, 'for:', entry.title, '→', result.price);
@@ -296,9 +300,15 @@ function extractPriceFromLiveDom() {
     document.querySelector('del');
   const originalPrice = parsePrice(origEl ? origEl.innerText : '') || price;
 
-  const inStock = !document.querySelector('.pdp-mod-soldOut') &&
-                  !document.querySelector('button[disabled][class*="add-to-cart"]') &&
-                  !document.body.innerText.match(/Currently Unavailable|Out of Stock|Sold Out/i);
+  const soldOutEl = document.querySelector('.pdp-mod-soldOut') ||
+                     document.querySelector('[class*="soldout"]') ||
+                     document.querySelector('[class*="sold-out"]');
+  const buyBtn = document.querySelector('.pdp-button_theme_orange') ||
+                 document.querySelector('button.add-to-cart-buy-now-btn');
+  const buyBtnDisabled = buyBtn ? buyBtn.disabled : false;
+  const unavailLabel = document.querySelector('.pdp-mod-product-unavailable') ||
+                       document.querySelector('[class*="currently-unavailable"]');
+  const inStock = !soldOutEl && !buyBtnDisabled && !unavailLabel;
 
   return { price, originalPrice, inStock };
 }
