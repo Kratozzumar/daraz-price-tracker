@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Daraz Price Tracker",
-  "version": "2.0.0",
-  "description": "Track Daraz prices privately on your machine.",
+  "version": "3.0.0",
+  "description": "Track Daraz prices privately on your machine — price targets, comparisons, multi-currency and more.",
   "permissions": [
     "storage",
     "tabs",
     "alarms",
     "notifications",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "https://*.daraz.pk/*",

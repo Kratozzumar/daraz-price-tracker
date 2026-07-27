@@ -16,6 +16,34 @@
     return parseFloat(s) || 0;
   }
 
+  // Some Daraz listings bake marketing text right into the title, e.g.
+  // "【Buy 2 for 12999: UK Plug+1.5M C-L Cable】 UGREEN ..." or a stray
+  // leading quote character. Strip that noise so only the product name shows.
+  function cleanTitle(raw) {
+    if (!raw) return raw;
+    let t = String(raw).trim();
+    t = t.replace(/^[【\[][^】\]]{0,120}[】\]]\s*/, '');
+    t = t.replace(/^["'“”‘’]+/, '').replace(/["'“”‘’]+$/, '');
+    t = t.trim();
+    return t || String(raw).trim();
+  }
+
+  function extractPromotions() {
+    const promos = [];
+    const elements = document.querySelectorAll('.voucher-text, [class*="voucher"], [class*="coupon"], .promotion-label, [class*="promotion"], [class*="flash-sale"]');
+    elements.forEach(el => {
+      const text = el.innerText.trim();
+      if (text && text.length > 2 && text.length < 50 && !promos.includes(text)) {
+        promos.push(text);
+      }
+    });
+    const html = document.body.innerText.toLowerCase();
+    if (html.includes('free shipping') && !promos.includes('Free Shipping')) {
+      promos.push('Free Shipping');
+    }
+    return promos;
+  }
+
   function extractFromDOM() {
     // ── Title ──
     const titleEl =
@@ -24,7 +52,7 @@
       document.querySelector('.title--wrap--aPXFJRt') ||
       document.querySelector('h1[class*="title"]') ||
       document.querySelector('h1');
-    const title = titleEl ? titleEl.innerText.trim() : document.title.split(' |')[0].trim();
+    const title = cleanTitle(titleEl ? titleEl.innerText.trim() : document.title.split(' |')[0].trim());
 
     // ── Current / discounted price (the main big price shown) ──
     const priceEl =
@@ -57,7 +85,23 @@
     let imageUrl = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
     if (imageUrl.startsWith('//')) imageUrl = 'https:' + imageUrl;
 
-    return { title, price, originalPrice, priceStr, imageUrl };
+    const inStock = !document.querySelector('.pdp-mod-soldOut') && 
+                    !document.querySelector('button[disabled][class*="add-to-cart"]') &&
+                    !document.body.innerText.match(/Currently Unavailable|Out of Stock|Sold Out/i);
+    
+    const promotions = extractPromotions();
+
+    return { title, price, originalPrice, priceStr, imageUrl, inStock, promotions };
+  }
+
+  // ── Multi-currency: detect Daraz region from hostname ──
+  function detectCurrency() {
+    const host = window.location.hostname;
+    if (host.includes('daraz.com.bd')) return 'BDT';
+    if (host.includes('daraz.com.np')) return 'NPR';
+    if (host.includes('daraz.lk')) return 'LKR';
+    if (host.includes('daraz.pk')) return 'PKR';
+    return 'Rs.';
   }
 
   function getItemId() {
@@ -86,10 +130,13 @@
         if (favorites[key]) {
           const fav = favorites[key];
           const oldPrice = fav.currentPrice || fav.price;
+          fav.currency = product.currency;
           fav.currentPrice = product.price;
           fav.price = product.price;
           fav.originalPrice = product.originalPrice;
           fav.imageUrl = product.imageUrl;
+          fav.inStock = product.inStock;
+          fav.promotions = product.promotions;
           fav.lastUpdated = product.lastUpdated;
           // Append to price history if price changed
           if (product.price !== oldPrice) {
@@ -97,6 +144,22 @@
             fav.priceHistory.push({ price: product.price, ts: product.lastUpdated });
             fav.lowestPrice = Math.min(fav.lowestPrice || product.price, product.price);
             fav.highestPrice = Math.max(fav.highestPrice || product.price, product.price);
+
+            // A price drop noticed just from browsing (not a manual/scheduled
+            // refresh) should still trigger a Chrome notification. Content
+            // scripts can't call chrome.notifications directly, so ask the
+            // background service worker to do it.
+            if (product.price < oldPrice) {
+              chrome.runtime.sendMessage({
+                action: 'price_drop_detected',
+                key,
+                title: fav.title,
+                currency: fav.currency,
+                oldPrice,
+                newPrice: product.price,
+                targetPrice: fav.targetPrice || 0
+              }, () => {});
+            }
           }
           favorites[key] = fav;
         }
@@ -137,10 +200,12 @@
           title: dom.title,
           price: dom.price,
           originalPrice: dom.originalPrice,
-          currency: 'Rs.',
+          currency: detectCurrency(),
           imageUrl: dom.imageUrl,
           url: window.location.href.split('?')[0],
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
+          inStock: dom.inStock,
+          promotions: dom.promotions
         };
 
         await saveProduct(product);

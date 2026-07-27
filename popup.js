@@ -26,9 +26,43 @@ function showConfirm() {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function fmt(price) {
+function getTrend(history) {
+  if (!history || history.length < 3) return null;
+  const recent = history.slice(-3);
+  let up = 0, down = 0;
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i].price > recent[i-1].price) up++;
+    if (recent[i].price < recent[i-1].price) down++;
+  }
+  if (up > down) return { direction: 'up', icon: '▲', color: 'var(--red)' };
+  if (down > up) return { direction: 'down', icon: '▼', color: 'var(--green)' };
+  return { direction: 'stable', icon: '→', color: 'var(--muted)' };
+}
+
+function getDealBadge(current, lowest, highest) {
+  if (current <= lowest * 1.10) return { text: 'Great Deal', class: 'deal-great', icon: '🟢' };
+  if (current <= lowest + (highest - lowest) * 0.3) return { text: 'Fair Price', class: 'deal-fair', icon: '🟡' };
+  if (current >= lowest + (highest - lowest) * 0.7) return { text: 'Wait', class: 'deal-wait', icon: '🔴' };
+  return null;
+}
+
+function fmt(price, currency = 'Rs.') {
   if (!price && price !== 0) return '—';
-  return 'Rs. ' + Number(price).toLocaleString();
+  return currency + ' ' + Number(price).toLocaleString();
+}
+
+// Some titles were scraped before this cleanup existed (or came from a
+// listing with promo text baked into the name), e.g.
+// "【Buy 2 for 12999: UK Plug+1.5M C-L Cable】 UGREEN ..." or a stray leading
+// quote character. Clean them up at display time too, so already-stored
+// items look right immediately without waiting for their next refresh.
+function cleanTitle(raw) {
+  if (!raw) return raw;
+  let t = String(raw).trim();
+  t = t.replace(/^[【\[][^】\]]{0,120}[】\]]\s*/, '');
+  t = t.replace(/^["'“”‘’]+/, '').replace(/["'“”‘’]+$/, '');
+  t = t.trim();
+  return t || String(raw).trim();
 }
 
 function timeAgo(ts) {
@@ -58,7 +92,7 @@ function makeThumb(url) {
 }
 
 // ── SVG price chart ────────────────────────────────────────────────────────
-function renderChart(priceHistory) {
+function renderChart(priceHistory, currency, targetPrice = 0) {
   const svg = document.getElementById('price-chart');
   const labelsEl = document.getElementById('chart-labels');
   const noData = document.getElementById('chart-no-data');
@@ -86,8 +120,12 @@ function renderChart(priceHistory) {
   const chartH = H - PAD.top - PAD.bottom;
 
   const prices = raw.map(p => p.price);
-  const minP = Math.min(...prices);
-  const maxP = Math.max(...prices);
+  let minP = Math.min(...prices);
+  let maxP = Math.max(...prices);
+  if (targetPrice > 0) {
+    if (targetPrice < minP) minP = targetPrice;
+    if (targetPrice > maxP) maxP = targetPrice;
+  }
   const range = maxP - minP || 1;
 
   const xScale = (i) => PAD.left + (i / (raw.length - 1)) * chartW;
@@ -98,9 +136,28 @@ function renderChart(priceHistory) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('class', 'chart-grid');
     line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
-    line.setAttribute('x2', W - PAD.right); line.setAttribute('y2', y);
+    line.setAttribute('x2', W - PAD.right - 20); line.setAttribute('y2', y);
     svg.appendChild(line);
   });
+
+  const addDashedLine = (val, className, label) => {
+    const y = yScale(val);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('class', `chart-line-dashed ${className}`);
+    line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
+    line.setAttribute('x2', W - PAD.right - 20); line.setAttribute('y2', y);
+    svg.appendChild(line);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('class', 'chart-label-text');
+    text.setAttribute('x', W - PAD.right - 18); text.setAttribute('y', y + 3);
+    text.textContent = label;
+    svg.appendChild(text);
+  };
+
+  addDashedLine(Math.min(...prices), 'chart-line-min', 'Low');
+  addDashedLine(Math.max(...prices), 'chart-line-max', 'High');
+  if (targetPrice > 0) addDashedLine(targetPrice, 'chart-line-target', 'Target');
 
   const pts = raw.map((p, i) => ({ x: xScale(i), y: yScale(p.price), price: p.price, ts: p.ts }));
 
@@ -122,11 +179,11 @@ function renderChart(priceHistory) {
   if (!tooltip) {
     tooltip = document.createElement('div');
     tooltip.className = 'chart-tooltip hidden';
-    tooltip.innerHTML = '<div class="chart-tooltip-price"></div><div class="chart-tooltip-date"></div>';
+    tooltip.innerHTML = '<div class="chart-tooltip-price"></div><div class="chart-tooltip-delta" style="font-size:0.7rem; font-weight:600;"></div><div class="chart-tooltip-date"></div>';
     document.querySelector('.chart-wrap').appendChild(tooltip);
   }
 
-  pts.forEach((pt) => {
+  pts.forEach((pt, i) => {
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('class', 'chart-dot');
     circle.setAttribute('cx', pt.x);
@@ -138,8 +195,17 @@ function renderChart(priceHistory) {
       const wrapRect = document.querySelector('.chart-wrap').getBoundingClientRect();
       const dotX = svgRect.left + pt.x * (svgRect.width / W) - wrapRect.left;
       const dotY = svgRect.top + pt.y * (svgRect.height / H) - wrapRect.top;
-      tooltip.querySelector('.chart-tooltip-price').textContent = fmt(pt.price);
+      tooltip.querySelector('.chart-tooltip-price').textContent = fmt(pt.price, currency);
       tooltip.querySelector('.chart-tooltip-date').textContent = new Date(pt.ts).toLocaleDateString();
+      const deltaEl = tooltip.querySelector('.chart-tooltip-delta');
+      if (i > 0) {
+        const diff = pt.price - pts[i-1].price;
+        if (diff > 0) { deltaEl.textContent = '+' + fmt(diff, currency); deltaEl.style.color = 'var(--red)'; }
+        else if (diff < 0) { deltaEl.textContent = '-' + fmt(Math.abs(diff), currency); deltaEl.style.color = 'var(--green)'; }
+        else deltaEl.textContent = '';
+      } else {
+        deltaEl.textContent = '';
+      }
 
       // Clamp tooltip so it doesn't overflow left or right edges
       const tooltipW = tooltip.offsetWidth || 80;
@@ -161,11 +227,71 @@ function renderChart(priceHistory) {
     span.textContent = shortDate(raw[i].ts);
     labelsEl.appendChild(span);
   });
+
+  const pctBadge = document.getElementById('chart-pct-badge');
+  if (raw.length > 1) {
+    const firstP = raw[0].price;
+    const lastP = raw[raw.length - 1].price;
+    if (firstP !== lastP) {
+      const pct = Math.abs(Math.round(((lastP - firstP) / firstP) * 100));
+      pctBadge.textContent = (lastP > firstP ? '↑ ' : '↓ ') + pct + '%';
+      pctBadge.className = 'pct-badge ' + (lastP > firstP ? 'pct-up' : 'pct-down');
+    } else {
+      pctBadge.className = 'pct-badge hidden';
+    }
+  } else {
+    pctBadge.className = 'pct-badge hidden';
+  }
+}
+
+// ── Search & Filter ────────────────────────────────────────────────────────
+let searchQuery = '';
+
+document.getElementById('search-input').addEventListener('input', (e) => {
+  searchQuery = e.target.value.toLowerCase();
+  document.getElementById('search-clear').classList.toggle('hidden', !searchQuery);
+  filterCards();
+});
+
+document.getElementById('search-clear').addEventListener('click', () => {
+  document.getElementById('search-input').value = '';
+  searchQuery = '';
+  document.getElementById('search-clear').classList.add('hidden');
+  filterCards();
+});
+
+function filterCards() {
+  const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+  const listId = activeTab === 'history' ? 'history-list' : 'favs-list';
+  const list = document.getElementById(listId);
+  const cards = list.querySelectorAll('.item-card');
+  let visibleCount = 0;
+  
+  cards.forEach(card => {
+    const title = card.querySelector('.item-name').textContent.toLowerCase();
+    const match = title.includes(searchQuery);
+    card.classList.toggle('hidden', !match);
+    if (match) visibleCount++;
+  });
+  
+  let emptyStateId = activeTab === 'history' ? 'history-empty' : 'favs-empty';
+  let emptyState = document.getElementById(emptyStateId);
+  if (cards.length > 0 && visibleCount === 0) {
+    emptyState.classList.remove('hidden');
+    emptyState.querySelector('p').textContent = 'No results found.';
+    emptyState.querySelector('small').textContent = 'Try a different search term.';
+  } else if (cards.length > 0) {
+    emptyState.classList.add('hidden');
+  } else {
+    emptyState.classList.remove('hidden');
+    emptyState.querySelector('p').textContent = activeTab === 'history' ? 'No history yet.' : 'No favorites yet.';
+    emptyState.querySelector('small').textContent = activeTab === 'history' ? 'Visit any Daraz product page and it will appear here automatically.' : 'Click the star on any history item to pin it.';
+  }
 }
 
 // ── View navigation ────────────────────────────────────────────────────────
 function showView(id) {
-  ['main-view', 'detail-view', 'settings-view'].forEach(v => {
+  ['main-view', 'detail-view', 'settings-view', 'compare-view'].forEach(v => {
     document.getElementById(v).classList.toggle('hidden', v !== id);
   });
 }
@@ -180,16 +306,16 @@ async function showDetail(fav) {
   img.src = fav.imageUrl || '';
   img.onerror = () => { img.parentElement.style.background = '#1e293b'; };
 
-  document.getElementById('detail-title').textContent = fav.title || '—';
+  document.getElementById('detail-title').textContent = cleanTitle(fav.title) || '—';
 
   const curr = fav.currentPrice || fav.price || 0;
   const orig = fav.originalPrice || 0;
-  document.getElementById('detail-price').textContent = fmt(curr);
+  document.getElementById('detail-price').textContent = fmt(curr, fav.currency);
 
   const origEl = document.getElementById('detail-orig');
   const discEl = document.getElementById('detail-discount');
   if (orig > curr) {
-    origEl.textContent = fmt(orig);
+    origEl.textContent = fmt(orig, fav.currency);
     origEl.classList.remove('hidden');
     discEl.textContent = `-${Math.round(((orig - curr) / orig) * 100)}%`;
     discEl.classList.remove('hidden');
@@ -202,11 +328,58 @@ async function showDetail(fav) {
 
   const history = fav.priceHistory || [{ price: curr, ts: fav.lastUpdated || Date.now() }];
   const histPrices = history.map(h => h.price);
-  document.getElementById('stat-low').textContent = fmt(Math.min(...histPrices));
-  document.getElementById('stat-high').textContent = fmt(Math.max(...histPrices));
+  document.getElementById('stat-low').textContent = fmt(Math.min(...histPrices), fav.currency);
+  document.getElementById('stat-high').textContent = fmt(Math.max(...histPrices), fav.currency);
   document.getElementById('stat-points').textContent = history.length + (history.length === 1 ? ' pt' : ' pts');
 
-  renderChart(history);
+  renderChart(history, fav.currency, fav.targetPrice);
+  currentDetailFav = fav;
+  renderDetailTags();
+
+  const trend = getTrend(history);
+  const detailTrendIcon = document.getElementById('detail-trend-icon');
+  detailTrendIcon.textContent = trend ? trend.icon : '';
+  detailTrendIcon.style.color = trend ? trend.color : '';
+
+  const dealBadge = document.getElementById('detail-deal-badge');
+  const deal = getDealBadge(curr, fav.lowestPrice, fav.highestPrice);
+  if (deal) {
+    dealBadge.className = 'deal-badge ' + deal.class;
+    dealBadge.classList.remove('hidden');
+    dealBadge.textContent = deal.icon + ' ' + deal.text;
+  } else {
+    dealBadge.className = 'deal-badge hidden';
+  }
+
+  const targetInputWrap = document.getElementById('target-input-wrap');
+  const targetBadgeWrap = document.getElementById('target-badge-wrap');
+  if (fav.targetPrice > 0) {
+    targetInputWrap.classList.add('hidden');
+    targetBadgeWrap.classList.remove('hidden');
+    document.getElementById('target-val').textContent = fmt(fav.targetPrice, fav.currency);
+  } else {
+    targetInputWrap.classList.remove('hidden');
+    targetBadgeWrap.classList.add('hidden');
+    document.getElementById('target-input').value = '';
+  }
+
+  // Promotions
+  const promosDiv = document.getElementById('detail-promos');
+  if (fav.promotions && fav.promotions.length > 0) {
+    promosDiv.innerHTML = '';
+    fav.promotions.forEach(p => {
+      const span = document.createElement('span');
+      span.className = 'tag-pill';
+      span.style.background = 'rgba(245, 158, 11, 0.2)';
+      span.style.color = '#fbbf24';
+      span.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+      span.textContent = p;
+      promosDiv.appendChild(span);
+    });
+    promosDiv.classList.remove('hidden');
+  } else {
+    promosDiv.classList.add('hidden');
+  }
 }
 
 // ── Settings view ───────────────────────────────────────────────────────────
@@ -234,6 +407,12 @@ async function showSettings() {
     pill.classList.toggle('active', Number(pill.dataset.limit) === histLimit);
   });
   document.getElementById('current-history-count').textContent = historyItems.length;
+
+  // Highlight correct theme pill
+  const theme = settings.theme || 'dark';
+  document.querySelectorAll('#theme-group .pill').forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.theme === theme);
+  });
 
   // Notification toggle
   document.getElementById('notif-toggle').checked = settings.notifications !== false;
@@ -316,7 +495,7 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
   meta.className = 'item-meta';
   const name = document.createElement('div');
   name.className = 'item-name';
-  name.textContent = product.title || 'Unknown product';
+  name.textContent = cleanTitle(product.title) || 'Unknown product';
   meta.appendChild(name);
   const time = document.createElement('div');
   time.className = 'item-time';
@@ -326,9 +505,18 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
 
   const pricing = document.createElement('div');
   pricing.className = 'item-pricing';
+
+  const trend = getTrend(product.priceHistory);
   const priceEl = document.createElement('div');
   priceEl.className = 'item-price';
-  priceEl.textContent = fmt(product.currentPrice || product.price);
+  priceEl.textContent = fmt(product.currentPrice || product.price, product.currency);
+  if (trend) {
+    const trendEl = document.createElement('span');
+    trendEl.className = 'trend-icon';
+    trendEl.textContent = ' ' + trend.icon;
+    trendEl.style.color = trend.color;
+    priceEl.appendChild(trendEl);
+  }
   pricing.appendChild(priceEl);
 
   const orig = product.originalPrice || 0;
@@ -336,13 +524,58 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
   if (orig > curr) {
     const origEl = document.createElement('div');
     origEl.className = 'item-orig';
-    origEl.textContent = fmt(orig);
+    origEl.textContent = fmt(orig, product.currency);
     pricing.appendChild(origEl);
+  }
+
+  // All badges live in one flex-wrap row so they never visually collide
+  const badgesRow = document.createElement('div');
+  badgesRow.className = 'badges-row';
+
+  if (orig > curr) {
     const badge = document.createElement('div');
     badge.className = 'badge sale';
     badge.textContent = `-${Math.round(((orig - curr) / orig) * 100)}%`;
-    pricing.appendChild(badge);
+    badgesRow.appendChild(badge);
   }
+
+  const deal = getDealBadge(product.currentPrice || product.price, product.lowestPrice, product.highestPrice);
+  if (deal) {
+    const dealBadge = document.createElement('div');
+    dealBadge.className = 'deal-badge ' + deal.class;
+    dealBadge.textContent = deal.icon + ' ' + deal.text;
+    badgesRow.appendChild(dealBadge);
+  }
+
+  if (product.inStock === false) {
+    const stockBadge = document.createElement('div');
+    stockBadge.className = 'badge';
+    stockBadge.style.background = 'rgba(244, 63, 94, 0.15)';
+    stockBadge.style.color = 'var(--red)';
+    stockBadge.textContent = 'Out of Stock';
+    badgesRow.appendChild(stockBadge);
+  }
+
+  if (product.justRestocked) {
+    const restockBadge = document.createElement('div');
+    restockBadge.className = 'badge';
+    restockBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+    restockBadge.style.color = 'var(--green)';
+    restockBadge.textContent = '🔔 Back in Stock!';
+    badgesRow.appendChild(restockBadge);
+  }
+
+  if (product.promotions && product.promotions.length > 0) {
+    const promoBadge = document.createElement('div');
+    promoBadge.className = 'badge';
+    promoBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+    promoBadge.style.color = 'var(--gold)';
+    promoBadge.textContent = '🏷️ Offers';
+    badgesRow.appendChild(promoBadge);
+  }
+
+  if (badgesRow.children.length > 0) pricing.appendChild(badgesRow);
+
   card.appendChild(pricing);
 
   const star = document.createElement('button');
@@ -368,8 +601,8 @@ async function toggleFav(product, currentFavs) {
     const origPrice = product.originalPrice || price;
     favorites[key] = {
       itemId: product.itemId, skuId: product.skuId, key,
-      title: product.title, price, currentPrice: price, originalPrice: origPrice,
-      currency: 'Rs.', imageUrl: product.imageUrl || '', url: product.url,
+      title: cleanTitle(product.title), price, currentPrice: price, originalPrice: origPrice,
+      currency: product.currency || 'Rs.', imageUrl: product.imageUrl || '', url: product.url,
       lowestPrice: price, highestPrice: price, targetPrice: 0,
       dateAdded: Date.now(), lastUpdated: Date.now(),
       priceHistory: [{ price, ts: Date.now() }]
@@ -379,6 +612,13 @@ async function toggleFav(product, currentFavs) {
   await new Promise(res => chrome.storage.local.set({ favorites }, res));
   await loadAll();
 }
+
+// ── Sort ─────────────────────────────────────────────────────────────────────
+let currentSort = 'recent';
+document.getElementById('sort-select').addEventListener('change', (e) => {
+  currentSort = e.target.value;
+  loadAll();
+});
 
 // ── Main load ────────────────────────────────────────────────────────────────
 async function loadAll() {
@@ -395,13 +635,13 @@ async function loadAll() {
   const activeCard = document.getElementById('active-card');
 
   if (onDaraz && currentProduct) {
-    document.getElementById('active-title').textContent = currentProduct.title || '—';
-    document.getElementById('active-price').textContent = fmt(currentProduct.price || currentProduct.currentPrice);
+    document.getElementById('active-title').textContent = cleanTitle(currentProduct.title) || '—';
+    document.getElementById('active-price').textContent = fmt(currentProduct.price || currentProduct.currentPrice, currentProduct.currency);
     document.getElementById('active-img').src = currentProduct.imageUrl || '';
     const origVal = currentProduct.originalPrice || 0;
     const currVal = currentProduct.price || currentProduct.currentPrice || 0;
     const origEl = document.getElementById('active-orig');
-    if (origVal > currVal) { origEl.textContent = fmt(origVal); origEl.classList.remove('hidden'); }
+    if (origVal > currVal) { origEl.textContent = fmt(origVal, currentProduct.currency); origEl.classList.remove('hidden'); }
     else origEl.classList.add('hidden');
 
     const key = `${currentProduct.itemId}_${currentProduct.skuId}`;
@@ -439,15 +679,108 @@ async function loadAll() {
   if (favKeys.length === 0) { favsEmpty.classList.remove('hidden'); }
   else {
     favsEmpty.classList.add('hidden');
-    Object.values(favorites)
-      .sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0))
-      .forEach(p => {
-        favsList.appendChild(makeCard(p, true,
-          (prod) => toggleFav(prod, favorites),
-          (prod) => showDetail(prod)
-        ));
+
+    const allTags = new Set();
+    Object.values(favorites).forEach(f => {
+      if (f.tags) f.tags.forEach(t => allTags.add(t));
+    });
+    const filterRow = document.getElementById('favs-tag-filter');
+    if (allTags.size > 0) {
+      filterRow.innerHTML = '';
+      filterRow.classList.remove('hidden');
+      const addFilter = (tag) => {
+        const p = document.createElement('div');
+        p.className = 'tag-filter-pill' + (activeTagFilter === tag ? ' active' : '');
+        p.textContent = tag;
+        p.onclick = () => {
+          activeTagFilter = tag;
+          loadAll();
+        };
+        filterRow.appendChild(p);
+      };
+      addFilter('All');
+      [...allTags].sort().forEach(t => addFilter(t));
+    } else {
+      filterRow.classList.add('hidden');
+    }
+
+    let favArr = Object.values(favorites);
+    if (activeTagFilter !== 'All') {
+      favArr = favArr.filter(f => f.tags && f.tags.includes(activeTagFilter));
+      if (favArr.length === 0) {
+        favsEmpty.classList.remove('hidden');
+        favsEmpty.querySelector('p').textContent = `No favorites tagged "${activeTagFilter}".`;
+        favsEmpty.querySelector('small').textContent = 'Try another tag.';
+      }
+    }
+    
+    if (currentSort === 'recent') {
+      favArr.sort((a, b) => (b.lastUpdated || b.dateAdded || 0) - (a.lastUpdated || a.dateAdded || 0));
+    } else if (currentSort === 'price_asc') {
+      favArr.sort((a, b) => (a.currentPrice || a.price) - (b.currentPrice || b.price));
+    } else if (currentSort === 'price_desc') {
+      favArr.sort((a, b) => (b.currentPrice || b.price) - (a.currentPrice || a.price));
+    } else if (currentSort === 'discount') {
+      favArr.sort((a, b) => {
+        const pA = a.currentPrice || a.price || 0;
+        const oA = a.originalPrice || pA;
+        const dA = oA > pA ? ((oA - pA) / oA) : 0;
+        
+        const pB = b.currentPrice || b.price || 0;
+        const oB = b.originalPrice || pB;
+        const dB = oB > pB ? ((oB - pB) / oB) : 0;
+        
+        return dB - dA;
       });
+    } else if (currentSort === 'name') {
+      favArr.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    }
+
+    favArr.forEach(p => {
+      const key = p.key || `${p.itemId}_${p.skuId}`;
+      let cb = null; // compare checkbox ref, set below if compareMode is on
+
+      const card = makeCard(p, true,
+        (prod) => toggleFav(prod, favorites),
+        (prod) => {
+          if (compareMode) {
+            toggleCompareSelect(key, card, cb);
+          } else {
+            showDetail(prod);
+          }
+        }
+      );
+
+      if (compareMode) {
+        card.classList.add('has-checkbox');
+        cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'compare-checkbox';
+        cb.checked = compareSelection.has(key);
+        cb.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleCompareSelect(key, card, cb);
+        });
+        card.insertBefore(cb, card.firstChild);
+        if (compareSelection.has(key)) card.classList.add('comparing');
+      }
+
+      favsList.appendChild(card);
+    });
+
+    // Clear "just restocked" flags after showing them once
+    const toClear = favArr.filter(f => f.justRestocked).map(f => f.key);
+    if (toClear.length > 0) {
+      chrome.storage.local.get('favorites', (freshData) => {
+        const freshFavs = freshData.favorites || {};
+        toClear.forEach(k => { if (freshFavs[k]) freshFavs[k].justRestocked = false; });
+        chrome.storage.local.set({ favorites: freshFavs });
+      });
+    }
   }
+
+  updateCompareToast();
+  if (typeof filterCards === 'function') filterCards();
 }
 
 // ── Wire up all event listeners ──────────────────────────────────────────────
@@ -459,12 +792,14 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.pane').forEach(p => p.classList.add('hidden'));
     btn.classList.add('active');
     document.getElementById('pane-' + btn.dataset.tab).classList.remove('hidden');
+    if (typeof filterCards === 'function') filterCards();
   });
 });
 
 // Back buttons
 document.getElementById('back-btn').addEventListener('click', () => showView('main-view'));
 document.getElementById('settings-back-btn').addEventListener('click', () => showView('main-view'));
+document.getElementById('compare-back-btn').addEventListener('click', () => showView('main-view'));
 
 
 
@@ -523,6 +858,35 @@ document.getElementById('pin-btn').addEventListener('click', async () => {
   if (data.current_page_product) await toggleFav(data.current_page_product, data.favorites || {});
 });
 
+// Target buttons
+document.getElementById('save-target-btn').addEventListener('click', async () => {
+  const input = document.getElementById('target-input');
+  const val = parseFloat(input.value);
+  if (val > 0 && currentDetailFav) {
+    currentDetailFav.targetPrice = val;
+    const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+    if (data.favorites && data.favorites[currentDetailFav.key]) {
+      data.favorites[currentDetailFav.key] = currentDetailFav;
+      await new Promise(res => chrome.storage.local.set({ favorites: data.favorites }, res));
+      showDetail(currentDetailFav);
+      await loadAll();
+    }
+  }
+});
+
+document.getElementById('clear-target-btn').addEventListener('click', async () => {
+  if (currentDetailFav) {
+    currentDetailFav.targetPrice = 0;
+    const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+    if (data.favorites && data.favorites[currentDetailFav.key]) {
+      data.favorites[currentDetailFav.key] = currentDetailFav;
+      await new Promise(res => chrome.storage.local.set({ favorites: data.favorites }, res));
+      showDetail(currentDetailFav);
+      await loadAll();
+    }
+  }
+});
+
 // Visit button in detail view
 document.getElementById('detail-visit-btn').addEventListener('click', (e) => {
   e.preventDefault();
@@ -540,6 +904,22 @@ document.getElementById('interval-group').addEventListener('click', (e) => {
 document.getElementById('history-limit-group').addEventListener('click', (e) => {
   const pill = e.target.closest('.pill');
   if (pill) saveHistoryLimit(Number(pill.dataset.limit));
+});
+
+// Theme selector
+document.getElementById('theme-group').addEventListener('click', async (e) => {
+  const pill = e.target.closest('.pill');
+  if (pill) {
+    const theme = pill.dataset.theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    const data = await new Promise(res => chrome.storage.local.get('settings', res));
+    const settings = data.settings || {};
+    settings.theme = theme;
+    await new Promise(res => chrome.storage.local.set({ settings }, res));
+    document.querySelectorAll('#theme-group .pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.theme === theme);
+    });
+  }
 });
 
 // Notification toggle
@@ -582,4 +962,347 @@ document.getElementById('clear-data-btn').addEventListener('click', async () => 
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+chrome.storage.local.get('settings', data => {
+  if (data.settings && data.settings.theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+});
 loadAll();
+
+// ── Tags ───────────────────────────────────────────────────────────────────
+let activeTagFilter = 'All';
+let currentDetailFav = null;
+
+const tagColors = [
+  { bg: 'rgba(244, 63, 94, 0.2)', color: '#fb7185', border: 'rgba(244, 63, 94, 0.3)' },
+  { bg: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: 'rgba(245, 158, 11, 0.3)' },
+  { bg: 'rgba(16, 185, 129, 0.2)', color: '#34d399', border: 'rgba(16, 185, 129, 0.3)' },
+  { bg: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)' },
+  { bg: 'rgba(129, 140, 248, 0.2)', color: '#818cf8', border: 'rgba(129, 140, 248, 0.3)' },
+  { bg: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: 'rgba(168, 85, 247, 0.3)' }
+];
+function getTagColor(tag) {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return tagColors[Math.abs(hash) % tagColors.length];
+}
+
+function renderDetailTags() {
+  const list = document.getElementById('detail-tags-list');
+  list.innerHTML = '';
+  if (!currentDetailFav) return;
+  const tags = currentDetailFav.tags || [];
+  tags.forEach(tag => {
+    const c = getTagColor(tag);
+    const pill = document.createElement('div');
+    pill.className = 'tag-pill';
+    pill.style.background = c.bg;
+    pill.style.color = c.color;
+    pill.style.border = `1px solid ${c.border}`;
+    pill.textContent = tag;
+    
+    const x = document.createElement('span');
+    x.className = 'remove-tag';
+    x.textContent = '×';
+    x.onclick = async () => {
+      currentDetailFav.tags = currentDetailFav.tags.filter(t => t !== tag);
+      const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+      if (data.favorites && data.favorites[currentDetailFav.key]) {
+        data.favorites[currentDetailFav.key] = currentDetailFav;
+        await new Promise(res => chrome.storage.local.set({ favorites: data.favorites }, res));
+        await loadAll();
+      }
+      renderDetailTags();
+    };
+    pill.appendChild(x);
+    list.appendChild(pill);
+  });
+}
+
+document.getElementById('add-tag-btn').addEventListener('click', async () => {
+  const input = document.getElementById('tag-input');
+  const val = input.value.trim().toLowerCase();
+  if (val && currentDetailFav) {
+    currentDetailFav.tags = currentDetailFav.tags || [];
+    if (!currentDetailFav.tags.includes(val)) {
+      currentDetailFav.tags.push(val);
+      const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+      if (data.favorites && data.favorites[currentDetailFav.key]) {
+        data.favorites[currentDetailFav.key] = currentDetailFav;
+        await new Promise(res => chrome.storage.local.set({ favorites: data.favorites }, res));
+        await loadAll();
+      }
+      renderDetailTags();
+    }
+    input.value = '';
+  }
+});
+
+// ── Export / Import & Toast ──────────────────────────────────────────────────
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+document.getElementById('export-json-btn').addEventListener('click', () => {
+  chrome.storage.local.get(null, data => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({ url, filename: 'daraz_tracker_backup.json' }, () => {
+      showToast('Exported!');
+    });
+  });
+});
+
+document.getElementById('export-csv-btn').addEventListener('click', () => {
+  chrome.storage.local.get('favorites', data => {
+    const favs = data.favorites || {};
+    let csv = 'Title,Current Price,Original Price,Lowest Price,Highest Price,URL,Date Added\n';
+    
+    Object.values(favs).forEach(f => {
+      const escape = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
+      csv += [
+        escape(cleanTitle(f.title)),
+        f.currentPrice || f.price || 0,
+        f.originalPrice || 0,
+        f.lowestPrice || f.currentPrice || 0,
+        f.highestPrice || f.currentPrice || 0,
+        escape(f.url),
+        escape(new Date(f.dateAdded || Date.now()).toISOString())
+      ].join(',') + '\n';
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({ url, filename: 'daraz_favorites.csv' }, () => {
+      showToast('Exported!');
+    });
+  });
+});
+
+document.getElementById('import-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+
+document.getElementById('import-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (data && typeof data === 'object') {
+        const current = await new Promise(res => chrome.storage.local.get(null, res));
+        const mergedFavs = { ...(current.favorites || {}), ...(data.favorites || {}) };
+        const mergedHist = [...(current.recently_viewed || []), ...(data.recently_viewed || [])];
+        const uniqueHist = [];
+        const seen = new Set();
+        for (const item of mergedHist) {
+          const k = item.itemId + '_' + item.skuId;
+          if (!seen.has(k)) { seen.add(k); uniqueHist.push(item); }
+        }
+        await new Promise(res => chrome.storage.local.set({
+          favorites: mergedFavs,
+          recently_viewed: uniqueHist,
+          settings: { ...(current.settings || {}), ...(data.settings || {}) }
+        }, res));
+        showToast('Imported!');
+        await loadAll();
+      } else {
+        showToast('Invalid file');
+      }
+    } catch (err) {
+      showToast('Invalid file');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ── Price Comparison ─────────────────────────────────────────────────────────
+let compareMode = false;
+let compareSelection = new Set();
+
+function updateCompareToast() {
+  const toast = document.getElementById('compare-toast');
+  const count = compareSelection.size;
+  document.getElementById('compare-count').textContent = `${count} selected`;
+  const doBtn = document.getElementById('do-compare-btn');
+  doBtn.disabled = count < 2;
+  toast.classList.toggle('hidden', !compareMode);
+}
+
+function toggleCompareSelect(key, card, cbEl) {
+  if (compareSelection.has(key)) {
+    compareSelection.delete(key);
+    card.classList.remove('comparing');
+    if (cbEl) cbEl.checked = false;
+  } else {
+    if (compareSelection.size >= 3) {
+      showToast('You can compare up to 3 items');
+      if (cbEl) cbEl.checked = false;
+      return;
+    }
+    compareSelection.add(key);
+    card.classList.add('comparing');
+    if (cbEl) cbEl.checked = true;
+  }
+  updateCompareToast();
+}
+
+document.getElementById('compare-mode-btn').addEventListener('click', () => {
+  compareMode = !compareMode;
+  document.getElementById('compare-mode-btn').classList.toggle('active', compareMode);
+  if (!compareMode) compareSelection.clear();
+  updateCompareToast();
+  loadAll();
+});
+
+document.getElementById('cancel-compare-btn').addEventListener('click', () => {
+  compareMode = false;
+  compareSelection.clear();
+  document.getElementById('compare-mode-btn').classList.remove('active');
+  updateCompareToast();
+  loadAll();
+});
+
+document.getElementById('do-compare-btn').addEventListener('click', async () => {
+  if (compareSelection.size < 2) return;
+  const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+  const favorites = data.favorites || {};
+  const favArr = [...compareSelection].map(k => favorites[k]).filter(Boolean);
+  if (favArr.length < 2) { showToast('Select at least 2 items'); return; }
+  renderCompareView(favArr);
+  showView('compare-view');
+});
+
+function renderCompareView(favArr) {
+  const thRow = document.getElementById('compare-th-row');
+  const tbody = document.getElementById('compare-tbody');
+  thRow.innerHTML = '<th></th>';
+  tbody.innerHTML = '';
+
+  favArr.forEach(f => {
+    const th = document.createElement('th');
+    const img = document.createElement('img');
+    img.src = f.imageUrl || '';
+    img.alt = '';
+    th.appendChild(img);
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'compare-title-cell';
+    titleDiv.textContent = cleanTitle(f.title) || 'Unknown product';
+    th.appendChild(titleDiv);
+    thRow.appendChild(th);
+  });
+
+  const rows = [
+    { label: 'Price', get: f => f.currentPrice || f.price || 0, isCurrency: true, lowerIsBetter: true },
+    { label: 'Original Price', get: f => f.originalPrice || 0, isCurrency: true },
+    {
+      label: 'Discount',
+      get: f => {
+        const c = f.currentPrice || f.price || 0;
+        const o = f.originalPrice || c;
+        return o > c ? `-${Math.round(((o - c) / o) * 100)}%` : '—';
+      }
+    },
+    { label: 'Lowest Ever', get: f => f.lowestPrice || f.currentPrice || f.price || 0, isCurrency: true },
+    { label: 'Highest Ever', get: f => f.highestPrice || f.currentPrice || f.price || 0, isCurrency: true },
+    {
+      label: 'Trend',
+      get: f => { const t = getTrend(f.priceHistory); return t ? t.icon : '—'; },
+      getColor: f => { const t = getTrend(f.priceHistory); return t ? t.color : null; }
+    },
+    {
+      label: 'Deal Rating',
+      get: f => {
+        const d = getDealBadge(f.currentPrice || f.price, f.lowestPrice, f.highestPrice);
+        return d ? `${d.icon} ${d.text}` : '—';
+      }
+    },
+    {
+      label: 'Stock',
+      get: f => f.inStock === false ? '❌ Out of Stock' : '✅ In Stock'
+    }
+  ];
+
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    const labelTd = document.createElement('td');
+    labelTd.textContent = row.label;
+    labelTd.style.fontWeight = '700';
+    labelTd.style.textAlign = 'left';
+    tr.appendChild(labelTd);
+
+    const rawValues = favArr.map(row.get);
+    let bestIdx = -1;
+    if (row.lowerIsBetter) {
+      const nums = rawValues.map(Number);
+      bestIdx = nums.indexOf(Math.min(...nums));
+    }
+
+    favArr.forEach((f, i) => {
+      const td = document.createElement('td');
+      td.textContent = row.isCurrency ? fmt(rawValues[i], f.currency) : rawValues[i];
+      if (row.getColor) {
+        const c = row.getColor(f);
+        if (c) td.style.color = c;
+      }
+      if (i === bestIdx) td.classList.add('best-value');
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  // Visit links row
+  const visitTr = document.createElement('tr');
+  visitTr.appendChild(document.createElement('td'));
+  favArr.forEach(f => {
+    const td = document.createElement('td');
+    const a = document.createElement('a');
+    a.href = f.url || '#';
+    a.textContent = 'Visit ↗';
+    a.className = 'visit-btn';
+    a.style.fontSize = '0.65rem';
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (f.url) chrome.tabs.create({ url: f.url });
+    });
+    td.appendChild(a);
+    visitTr.appendChild(td);
+  });
+  tbody.appendChild(visitTr);
+}
+
+// ── Wishlist Sharing ──────────────────────────────────────────────────────────
+document.getElementById('share-wishlist-btn').addEventListener('click', async () => {
+  const data = await new Promise(res => chrome.storage.local.get('favorites', res));
+  const favorites = data.favorites || {};
+  const favArr = Object.values(favorites);
+
+  if (favArr.length === 0) {
+    showToast('No favorites to share yet');
+    return;
+  }
+
+  let text = '🛒 My Daraz Wishlist\n\n';
+  favArr.forEach((f, i) => {
+    const curr = f.currentPrice || f.price || 0;
+    const orig = f.originalPrice || 0;
+    const priceStr = fmt(curr, f.currency);
+    const wasStr = orig > curr ? ` (was ${fmt(orig, f.currency)})` : '';
+    text += `${i + 1}. ${cleanTitle(f.title)}\n   ${priceStr}${wasStr}\n   ${f.url}\n\n`;
+  });
+  text += 'Tracked with Daraz Price Tracker';
+
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('📋 Copied to clipboard!');
+  } catch (err) {
+    showToast('Could not copy to clipboard');
+  }
+});
