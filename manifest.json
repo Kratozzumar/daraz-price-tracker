@@ -32,8 +32,15 @@
       "run_at": "document_idle"
     }
   ],
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_icon": "icon48.png"
+    "default_icon": {
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   }
 }
