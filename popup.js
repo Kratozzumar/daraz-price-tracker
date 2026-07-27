@@ -471,8 +471,36 @@ document.getElementById('settings-back-btn').addEventListener('click', () => sho
 // Settings button
 document.getElementById('settings-btn').addEventListener('click', showSettings);
 
-// Refresh (storage reload) button
-document.getElementById('refresh-btn').addEventListener('click', () => loadAll());
+// Refresh button — fetch latest prices from Daraz
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('refresh-btn');
+  if (btn.disabled) return;
+
+  // Show spinning animation
+  btn.disabled = true;
+  btn.classList.add('spinning');
+  btn.title = 'Refreshing prices...';
+
+  try {
+    // Tell background to fetch fresh prices from Daraz
+    await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'refresh_now' }, (response) => {
+        if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+        else resolve(response);
+      });
+    });
+  } catch (err) {
+    console.warn('Refresh error:', err);
+  }
+
+  // Reload UI with updated data
+  await loadAll();
+
+  // Stop spinner
+  btn.disabled = false;
+  btn.classList.remove('spinning');
+  btn.title = 'Refresh prices from Daraz';
+});
 
 // Pin button on active card
 document.getElementById('pin-btn').addEventListener('click', async () => {
