@@ -2,10 +2,11 @@
 
 > **Track Daraz product prices privately — 100% offline, zero cloud, all data stays on your machine.**
 
-A lightweight Chrome extension that automatically tracks prices when you browse [Daraz](https://www.daraz.lk) (Sri Lanka, Pakistan, Bangladesh, Nepal). Get notified when prices drop, view price history charts, and manage your favorite items — all without sending a single byte to any server.
+A feature-rich Chrome extension that automatically tracks prices when you browse [Daraz](https://www.daraz.lk) (Sri Lanka, Pakistan, Bangladesh, Nepal). Set price targets, compare products, get drop alerts, view rich charts, export data — all without sending a single byte to any server.
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-brightgreen)
+![Version](https://img.shields.io/badge/Version-3.0.0-orange)
 ![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-10b981)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Mac%20%7C%20Linux-blue)
 
@@ -13,30 +14,47 @@ A lightweight Chrome extension that automatically tracks prices when you browse 
 
 ## ✨ Features
 
+### 🔥 Core Tracking
 | Feature | Description |
 |---|---|
-| 🔍 **Auto-tracking** | Prices captured automatically when you visit any Daraz product page |
+| 🔍 **Auto Price Capture** | Prices captured automatically when you visit any Daraz product page |
 | ⭐ **Favorites** | Star items to track them long-term with full price history |
-| 📊 **Price Charts** | Interactive SVG charts showing price trends over time |
+| 🔄 **Background Refresh** | Automatically checks prices on favorites even when you're not browsing Daraz |
 | 🔔 **Price Drop Alerts** | Chrome notifications when a favorited item's price drops |
-| 🔄 **Background Refresh** | Automatically checks prices on favorites even when you're not on Daraz |
-| ⚙️ **Configurable** | Set refresh interval (1h–24h), history limit (10–100 items), toggle notifications |
+| 🌍 **Multi-Region & Currency** | Supports Daraz LK, PK, BD, NP — auto-detects currency (Rs./৳/NPR) |
+
+### 🎯 Smart Price Intelligence
+| Feature | Description |
+|---|---|
+| 🎯 **Price Drop Target** | Set a target price for any favorite — get a special notification when price hits your goal |
+| 📈 **Trend Prediction** | See trending indicators (📈📉➡️) based on recent price movement |
+| 🟢 **Best Time to Buy** | Smart badges: "Great Deal", "Fair Price", or "Wait for Drop" based on price position vs. historical range |
+| 📦 **Stock Alerts** | Detects out-of-stock products and notifies you when they're back in stock |
+| 🏷️ **Sale & Coupon Detection** | Scrapes vouchers, promotions, and flash sale labels from product pages |
+
+### 📊 Charts & Analysis
+| Feature | Description |
+|---|---|
+| 📊 **Interactive Price Charts** | SVG charts with min/max reference lines, target price line, and hover tooltips |
+| 📉 **% Change Badge** | Shows percentage change between first and latest tracked price |
+| 🔀 **Price Comparison** | Side-by-side comparison of up to 3 favorited products |
+
+### 🛠️ Data & Organization
+| Feature | Description |
+|---|---|
+| 🔎 **Search & Filter** | Real-time search across history and favorites by product name |
+| 📑 **Sort Options** | Sort favorites by price, discount %, name, or most recent |
+| 🏷️ **Category Tags** | Tag favorites with custom labels (Electronics, Kitchen, etc.) for organized tracking |
+| 💾 **Export / Import** | Backup & restore data as JSON. Export favorites as CSV spreadsheet |
+| 📋 **Wishlist Sharing** | Copy a formatted wishlist with prices and links to clipboard |
+| 🌗 **Dark / Light Theme** | Toggle between dark and light mode in settings |
+
+### 🔒 Privacy
+| Feature | Description |
+|---|---|
 | 🔒 **100% Private** | All data stored in `chrome.storage.local` — nothing leaves your machine |
-| 🌍 **Multi-region** | Supports Daraz Sri Lanka (.lk), Pakistan (.pk), Bangladesh (.com.bd), Nepal (.com.np) |
-| 💻 **Cross-platform** | Works on Windows, macOS, and Linux |
-
----
-
-## 📸 Screenshots
-
-### Dashboard — History & Favorites
-The main popup shows two tabs: **History** (recently visited items) and **Favorites** (starred items with price tracking).
-
-### Price Detail View
-Click any favorited item to see a detailed price chart with lowest/highest stats and an interactive timeline.
-
-### Settings
-Configure refresh intervals, history limits, notification preferences, and clear data — all from the settings panel.
+| ❌ **No Cloud** | Zero analytics, zero telemetry, no accounts, no external APIs |
+| 🔓 **Open Source** | Fully transparent — audit every line of code |
 
 ---
 
@@ -46,7 +64,7 @@ Configure refresh intervals, history limits, notification preferences, and clear
 
 1. **Download the code**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/daraz-price-tracker.git
+   git clone https://github.com/Kratozzumar/daraz-price-tracker.git
    ```
 
 2. **Open Chrome Extensions page**
@@ -79,6 +97,7 @@ Configure refresh intervals, history limits, notification preferences, and clear
 1. Browse any product on [Daraz](https://www.daraz.lk)
 2. The extension icon shows a **green ✓** when a price is captured
 3. Open the extension popup to see your browsing history
+4. Prices auto-update when you switch product variants or colors
 
 ### Favorites & Price Alerts
 1. Click the **⭐ star** on any item to add it to Favorites
@@ -86,19 +105,29 @@ Configure refresh intervals, history limits, notification preferences, and clear
 3. The extension automatically checks prices in the background
 4. You'll get a **Chrome notification** when a price drops 📉
 
-### Price History Charts
-1. Go to **Favorites** tab
-2. Click any item to open the **detail view**
-3. See the interactive price chart, lowest/highest stats
-4. Hover over data points for exact prices and dates
+### Price Targets
+1. Open any favorited item's **detail view**
+2. Enter your desired price in the **"Set target price"** field
+3. When the price drops to or below your target → 🎯 **special notification**
 
-### Settings
-Click the **⚙️ gear icon** in the top-right to configure:
-- **Refresh Interval** — How often to check prices (1h, 3h, 6h, 12h, 24h)
-- **History Limit** — Max items in browsing history (10, 20, 50, 100)
-- **Price Drop Alerts** — Toggle Chrome notifications on/off
-- **Manual Refresh** — Force an immediate price check
-- **Clear Data** — Reset all tracked data
+### Price Comparison
+1. Click the **compare icon** in the header to enter compare mode
+2. Select 2–3 items from your favorites
+3. View a side-by-side comparison table highlighting the best deal
+
+### Search, Sort & Tags
+- **Search**: Use the search bar to filter products by name
+- **Sort**: Use the dropdown to sort by price, discount, name, or date
+- **Tags**: Add custom tags in detail view, then filter favorites by tag
+
+### Export & Import
+1. Go to **Settings** → **Export & Import**
+2. **Export JSON** — full backup of all data
+3. **Export CSV** — spreadsheet-friendly favorites list
+4. **Import** — restore from a JSON backup file
+
+### Theme
+- Toggle between **Dark** and **Light** mode in Settings
 
 ---
 
@@ -107,12 +136,13 @@ Click the **⚙️ gear icon** in the top-right to configure:
 ```
 daraz-price-tracker/
 ├── manifest.json      # Extension config (Manifest V3)
-├── content.js         # Runs on Daraz pages — scrapes prices from DOM
+├── content.js         # Runs on Daraz pages — scrapes prices, promos, stock status
 ├── background.js      # Service worker — alarms, notifications, background refresh
 ├── popup.html         # Extension popup UI structure
-├── popup.css          # Styling — dark theme, glassmorphism, animations
-├── popup.js           # Popup logic — views, charts, settings, state management
-└── icon48.png         # Extension icon
+├── popup.css          # Styling — dark/light themes, glassmorphism, animations
+├── popup.js           # Popup logic — views, charts, comparison, settings
+├── icon48.png         # Toolbar icon (48×48)
+└── icon128.png        # Extension page icon (128×128)
 ```
 
 ### How It Works
@@ -120,21 +150,23 @@ daraz-price-tracker/
 ```
 You visit a Daraz product page
         ↓
-content.js extracts price from DOM
-  (4 strategies: JSON-LD → pageData JS → meta tags → sale attributes)
+content.js extracts price, stock status, promotions from DOM
+  (MutationObserver detects variant/color switches automatically)
         ↓
 Saves to chrome.storage.local
         ↓
 background.js runs periodic alarms
   → Fetches HTML for each favorite
-  → Parses price from raw HTML
-  → Detects price changes
-  → Sends Chrome notification on price drops
+  → Parses price with 4 fallback strategies
+  → Detects price changes & stock status changes
+  → Checks against target prices
+  → Sends Chrome notifications
         ↓
 popup.js renders the UI
-  → History list, Favorites list
-  → Price detail view with SVG chart
-  → Settings panel
+  → History & Favorites lists with search/sort/filter
+  → Price detail view with enhanced SVG charts
+  → Price comparison table
+  → Settings with theme, export/import, tags
 ```
 
 ---
@@ -166,9 +198,9 @@ This extension is built with **privacy-first** principles:
 
 - **Manifest V3** — Latest Chrome extension platform
 - **Vanilla JS** — No frameworks, no build step, no dependencies
-- **SVG Charts** — Custom-built price history visualization
-- **Chrome APIs** — `storage.local`, `alarms`, `notifications`, `tabs`, `scripting`
-- **CSS3** — Dark theme with glassmorphism, CSS variables, and micro-animations
+- **SVG Charts** — Custom-built interactive price history visualization
+- **Chrome APIs** — `storage.local`, `alarms`, `notifications`, `tabs`, `scripting`, `downloads`
+- **CSS3** — Dark/light themes with glassmorphism, CSS variables, and micro-animations
 
 ---
 
@@ -176,11 +208,12 @@ This extension is built with **privacy-first** principles:
 
 | Permission | Why it's needed |
 |---|---|
-| `storage` | Save tracked prices, favorites, and settings locally |
+| `storage` | Save tracked prices, favorites, tags, and settings locally |
 | `tabs` | Detect when you're on a Daraz page and show badge |
 | `alarms` | Schedule periodic background price checks |
-| `notifications` | Alert you when a price drops |
+| `notifications` | Alert you when a price drops or hits your target |
 | `scripting` | Inject the price scraper on Daraz pages |
+| `downloads` | Export data as JSON/CSV files |
 | `host_permissions` (daraz.*) | Access Daraz pages to read prices |
 
 ---
