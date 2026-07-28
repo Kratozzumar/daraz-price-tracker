@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
 
   if (msg.action === 'refresh_now') {
-    refreshAllTracked().then(() => reply && reply({ ok: true }));
+    refreshAllTracked(true).then(() => reply && reply({ ok: true }));
     return true; // keep message channel open for async
   }
 
@@ -66,8 +66,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 // ── Alarm fires → refresh everything we're tracking ───────────────────────
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
-    console.log('[DarazBG] Alarm fired — starting price refresh');
-    refreshAllTracked();
+    console.log('[DarazBG] Alarm fired — starting background price refresh (no popup fallback)');
+    refreshAllTracked(false);
   }
 });
 
@@ -352,10 +352,14 @@ async function fetchViaHiddenTab(entry) {
 }
 
 // Try the fast static-HTML fetch first; only pay the cost of actually
-// rendering the page if that comes back empty.
-async function fetchPriceReliably(entry) {
+// rendering the page if that comes back empty (and fallback is permitted).
+async function fetchPriceReliably(entry, allowWindowFallback = false) {
   const fast = await fetchProductPrice(entry);
   if (fast) return fast;
+  if (!allowWindowFallback) {
+    console.log('[DarazBG] Skipping window fallback in background mode for:', entry.title);
+    return null;
+  }
   return fetchViaHiddenTab(entry);
 }
 
@@ -406,7 +410,7 @@ function buildWorklist(favorites, history) {
 //      idle waits. If we only wrote once at the end, a suspension partway
 //      through would silently discard every price we'd already fetched.
 //      Committing per-item means progress is never lost.
-async function refreshAllTracked() {
+async function refreshAllTracked(allowWindowFallback = false) {
   const initial = await new Promise(res =>
     chrome.storage.local.get(['favorites', 'recently_viewed'], res)
   );
@@ -431,7 +435,7 @@ async function refreshAllTracked() {
       await new Promise(r => setTimeout(r, 600));
     }
 
-    const result = await fetchPriceReliably(entry);
+    const result = await fetchPriceReliably(entry, allowWindowFallback);
     const now = Date.now();
 
     if (!result) {
