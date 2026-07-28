@@ -99,7 +99,30 @@
     
     const promotions = extractPromotions();
 
-    return { title, price, originalPrice, priceStr, imageUrl, inStock, promotions };
+    // ── Shipping Fee ──
+    const shippingEl = document.querySelector('.delivery-option-item__shipping-fee') ||
+                       document.querySelector('[class*="shipping-fee"]');
+    const shippingStr = shippingEl ? shippingEl.innerText.trim() : '';
+    const shippingFee = shippingStr.toLowerCase().includes('free') ? 0 : parsePrice(shippingStr);
+
+    // ── Seller Info ──
+    const sellerNameEl = document.querySelector('.pdp-seller-info-pc__seller-name') ||
+                         document.querySelector('.seller-name__detail') ||
+                         document.querySelector('[class*="seller-name"]');
+    const sellerRatingEl = document.querySelector('.seller-info-value') ||
+                           document.querySelector('.pdp-seller-info-pc__seller-rating') ||
+                           document.querySelector('[class*="seller-rating"]');
+    
+    let seller = null;
+    if (sellerNameEl) {
+      seller = {
+        name: sellerNameEl.innerText.trim(),
+        rating: sellerRatingEl ? sellerRatingEl.innerText.trim() : 'New',
+        url: sellerNameEl.href || ''
+      };
+    }
+
+    return { title, price, originalPrice, priceStr, imageUrl, inStock, promotions, shippingFee, seller };
   }
 
   // ── Multi-currency: detect Daraz region from hostname ──
@@ -141,10 +164,18 @@
           fav.currency = product.currency;
           fav.currentPrice = product.price;
           fav.price = product.price;
+          
+          // ── Fake Discount Detector ──
+          if (fav.originalPrice && product.originalPrice > fav.originalPrice) {
+            fav.fakeDiscountWarning = true;
+          }
           fav.originalPrice = product.originalPrice;
+          
           fav.imageUrl = product.imageUrl;
           fav.inStock = product.inStock;
           fav.promotions = product.promotions;
+          fav.shippingFee = product.shippingFee;
+          fav.seller = product.seller;
           fav.lastUpdated = product.lastUpdated;
           // Append to price history if price changed
           if (product.price !== oldPrice) {
@@ -213,10 +244,15 @@
           url: window.location.href.split('?')[0],
           lastUpdated: Date.now(),
           inStock: dom.inStock,
-          promotions: dom.promotions
+          promotions: dom.promotions,
+          shippingFee: dom.shippingFee,
+          seller: dom.seller
         };
 
         await saveProduct(product);
+
+        // Feature 3: Better Alternatives
+        findCheaperAlternatives(product);
 
         // Tell background to show green tick on icon
         chrome.runtime.sendMessage({ action: 'set_badge', tabId: null }, () => {});
@@ -281,4 +317,105 @@
       return true;
     }
   });
+
+  // ── Feature 3: Better Alternatives (Price Match) ──
+  async function findCheaperAlternatives(product) {
+    if (!product.title) return;
+    
+    // Check if we already showed a banner to avoid spamming
+    if (document.getElementById('daraz-tracker-alt-banner')) return;
+
+    try {
+      // Use Daraz catalog search endpoint
+      const searchUrl = `/catalog/?q=${encodeURIComponent(product.title.substring(0, 50))}&ajax=true`;
+      const res = await fetch(searchUrl);
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      let alternatives = [];
+      if (data && data.mods && data.mods.listItems) {
+        // Filter out the current item and find cheaper ones
+        alternatives = data.mods.listItems.filter(item => 
+          item.itemId !== product.itemId && 
+          parseFloat(item.price) < product.price
+        );
+      }
+      
+      if (alternatives.length > 0) {
+        // Find the absolute cheapest
+        alternatives.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+        const bestAlt = alternatives[0];
+        const count = alternatives.length;
+        
+        injectAlternativeBanner(count, bestAlt, product.currency);
+      }
+    } catch (e) {
+      console.warn('[DarazTracker] Alt search failed', e);
+    }
+  }
+
+  function injectAlternativeBanner(count, bestAlt, currency) {
+    const banner = document.createElement('div');
+    banner.id = 'daraz-tracker-alt-banner';
+    banner.style.cssText = `
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 12px;
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-size: 14px;
+      animation: slideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+    
+    // Add keyframes
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideDown { from { transform: translate(-50%, -20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+      .daraz-tracker-btn:hover { background: #ff5500 !important; }
+    `;
+    document.head.appendChild(style);
+
+    banner.innerHTML = `
+      <div style="font-size: 18px;">✨</div>
+      <div style="flex: 1;">
+        We found <b>${count}</b> other seller${count > 1 ? 's' : ''} with similar items for cheaper 
+        (Starting at <b style="color: #10b981;">${currency} ${parseFloat(bestAlt.price).toLocaleString()}</b>).
+      </div>
+      <a href="${bestAlt.itemUrl}" target="_blank" class="daraz-tracker-btn" style="
+        background: #f85606;
+        color: white;
+        text-decoration: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: background 0.2s;
+      ">View Cheapest</a>
+      <button id="daraz-tracker-close-alt" style="
+        background: none;
+        border: none;
+        color: #94a3b8;
+        cursor: pointer;
+        font-size: 18px;
+        padding: 0 4px;
+      ">×</button>
+    `;
+
+    document.body.appendChild(banner);
+    
+    document.getElementById('daraz-tracker-close-alt').addEventListener('click', () => {
+      banner.remove();
+    });
+  }
+
 })();

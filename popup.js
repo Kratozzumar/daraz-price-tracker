@@ -324,6 +324,48 @@ async function showDetail(fav) {
     discEl.classList.add('hidden');
   }
 
+  // ── Fake Discount Warning ──
+  const fakeDiscountEl = document.getElementById('fake-discount-warning');
+  if (fav.fakeDiscountWarning) {
+    fakeDiscountEl.classList.remove('hidden');
+  } else {
+    fakeDiscountEl.classList.add('hidden');
+  }
+
+  // ── Shipping Fee ──
+  const shipEl = document.getElementById('detail-shipping');
+  if (fav.shippingFee !== undefined) {
+    if (fav.shippingFee === 0) {
+      shipEl.innerHTML = `<span style="color:#10b981; font-weight: 500;">Free Shipping</span> • Total: ${fmt(curr, fav.currency)}`;
+    } else {
+      shipEl.textContent = `+ ${fmt(fav.shippingFee, fav.currency)} Shipping • Total: ${fmt(curr + fav.shippingFee, fav.currency)}`;
+    }
+    shipEl.classList.remove('hidden');
+  } else {
+    shipEl.classList.add('hidden');
+  }
+
+  // ── Seller Info ──
+  const sellerEl = document.getElementById('detail-seller');
+  if (fav.seller) {
+    let ratingColor = '#94a3b8'; // default grey
+    const rMatch = fav.seller.rating.match(/(\d+)%/);
+    if (rMatch) {
+      const score = parseInt(rMatch[1]);
+      if (score >= 90) ratingColor = '#10b981'; // green
+      else if (score >= 75) ratingColor = '#fbbf24'; // yellow
+      else ratingColor = '#ef4444'; // red
+    }
+    sellerEl.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Sold by <b>${fav.seller.name}</b></span>
+      <span style="color: ${ratingColor}; font-weight: 500;">(${fav.seller.rating})</span>
+    `;
+    sellerEl.classList.remove('hidden');
+  } else {
+    sellerEl.classList.add('hidden');
+  }
+
   document.getElementById('detail-visit-btn').href = fav.url || '#';
 
   const history = fav.priceHistory || [{ price: curr, ts: fav.lastUpdated || Date.now() }];
@@ -361,6 +403,17 @@ async function showDetail(fav) {
     targetInputWrap.classList.remove('hidden');
     targetBadgeWrap.classList.add('hidden');
     document.getElementById('target-input').value = '';
+  }
+
+  // ── Smart Sale Predictor ──
+  const saleBanner = document.getElementById('smart-sale-banner');
+  const saleText = document.getElementById('smart-sale-text');
+  const upcomingSale = getUpcomingSale();
+  if (upcomingSale && upcomingSale.daysLeft <= 14) {
+    saleText.innerHTML = `Wait! The <b>${upcomingSale.name}</b> sale is in ${upcomingSale.daysLeft} days.`;
+    saleBanner.classList.remove('hidden');
+  } else {
+    saleBanner.classList.add('hidden');
   }
 
   // Promotions
@@ -481,6 +534,35 @@ async function saveHistoryLimit(limit) {
 }
 
 // ── Card builder ────────────────────────────────────────────────────────────
+// ── Smart Sale Calendar ──
+function getUpcomingSale() {
+  const sales = [
+    { name: "Avurudu/Eid", month: 3, date: 10 }, // April 10 (0-indexed month)
+    { name: "Daraz Birthday", month: 2, date: 15 }, // March 15
+    { name: "11.11", month: 10, date: 11 }, // Nov 11
+    { name: "12.12", month: 11, date: 12 }  // Dec 12
+  ];
+  
+  const now = new Date();
+  let nextSale = null;
+  let minDays = Infinity;
+  
+  sales.forEach(sale => {
+    let saleDate = new Date(now.getFullYear(), sale.month, sale.date);
+    if (now > saleDate) {
+      saleDate.setFullYear(now.getFullYear() + 1);
+    }
+    const diffTime = Math.abs(saleDate - now);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    if (diffDays < minDays) {
+      minDays = diffDays;
+      nextSale = { ...sale, daysLeft: diffDays };
+    }
+  });
+  
+  return nextSale;
+}
+
 function makeCard(product, isFav, onStarClick, onCardClick) {
   const card = document.createElement('div');
   card.className = 'item-card';
@@ -496,6 +578,12 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
   const name = document.createElement('div');
   name.className = 'item-name';
   name.textContent = cleanTitle(product.title) || 'Unknown product';
+  if (product.fakeDiscountWarning) {
+    const w = document.createElement('span');
+    w.innerHTML = ' ⚠️';
+    w.title = 'Seller inflated original price to fake discount';
+    name.appendChild(w);
+  }
   meta.appendChild(name);
   const time = document.createElement('div');
   time.className = 'item-time';
