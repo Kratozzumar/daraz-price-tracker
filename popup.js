@@ -207,14 +207,25 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
         deltaEl.textContent = '';
       }
 
-      // Clamp tooltip so it doesn't overflow left or right edges
       tooltip.classList.remove('hidden');
-      const tooltipW = tooltip.offsetWidth;
-      const minLeft = tooltipW / 2 + 4;  // half width + small padding
-      const maxLeft = wrapRect.width - tooltipW / 2 - 4;
-      const clampedX = Math.max(minLeft, Math.min(dotX, maxLeft));
 
-      tooltip.style.left = clampedX + 'px';
+      if (dotX > wrapRect.width - 70) {
+        // Close to right edge -> anchor to the right
+        tooltip.style.left = 'auto';
+        tooltip.style.right = '4px';
+        tooltip.style.transform = 'translate(0, -110%)';
+      } else if (dotX < 70) {
+        // Close to left edge -> anchor to the left
+        tooltip.style.left = '4px';
+        tooltip.style.right = 'auto';
+        tooltip.style.transform = 'translate(0, -110%)';
+      } else {
+        // Center it above the dot
+        tooltip.style.left = dotX + 'px';
+        tooltip.style.right = 'auto';
+        tooltip.style.transform = 'translate(-50%, -110%)';
+      }
+
       tooltip.style.top = dotY + 'px';
     });
     circle.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
