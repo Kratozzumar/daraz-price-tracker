@@ -115,7 +115,7 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
     ? [priceHistory[0], { ...priceHistory[0], ts: Date.now() }]
     : priceHistory;
 
-  const W = 340, H = 120, PAD = { top: 10, right: 32, bottom: 6, left: 6 };
+  const W = 340, H = 120, PAD = { top: 12, right: 6, bottom: 6, left: 6 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -136,29 +136,33 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('class', 'chart-grid');
     line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
-    line.setAttribute('x2', W - 4); line.setAttribute('y2', y);
+    line.setAttribute('x2', W - PAD.right); line.setAttribute('y2', y);
     svg.appendChild(line);
   });
 
-  const addDashedLine = (val, className, label) => {
+  const addDashedLine = (val, className, label, offset = -6) => {
     const y = yScale(val);
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('class', `chart-line-dashed ${className}`);
     line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
-    line.setAttribute('x2', W - 4); line.setAttribute('y2', y);
+    line.setAttribute('x2', W - PAD.right); line.setAttribute('y2', y);
     svg.appendChild(line);
 
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('class', 'chart-label-text');
-    text.setAttribute('x', W - 4); text.setAttribute('y', y - 4);
+    text.setAttribute('x', W - PAD.right - 2); 
+    text.setAttribute('y', y + offset);
     text.setAttribute('text-anchor', 'end');
     text.textContent = label;
     svg.appendChild(text);
   };
 
-  addDashedLine(Math.min(...prices), 'chart-line-min', 'Low');
-  addDashedLine(Math.max(...prices), 'chart-line-max', 'High');
-  if (targetPrice > 0) addDashedLine(targetPrice, 'chart-line-target', 'Target');
+  if (maxP > minP) {
+    // Draw Low line with text above it, High line with text below it
+    addDashedLine(minP, 'chart-line-min', 'Low', -6);
+    addDashedLine(maxP, 'chart-line-max', 'High', 12);
+  }
+  if (targetPrice > 0) addDashedLine(targetPrice, 'chart-line-target', 'Target', -6);
 
   const pts = raw.map((p, i) => ({ x: xScale(i), y: yScale(p.price), price: p.price, ts: p.ts }));
 
