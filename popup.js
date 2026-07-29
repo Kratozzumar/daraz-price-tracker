@@ -115,7 +115,7 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
     ? [priceHistory[0], { ...priceHistory[0], ts: Date.now() }]
     : priceHistory;
 
-  const W = 340, H = 120, PAD = { top: 10, right: 6, bottom: 6, left: 6 };
+  const W = 340, H = 120, PAD = { top: 10, right: 32, bottom: 6, left: 6 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -136,7 +136,7 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('class', 'chart-grid');
     line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
-    line.setAttribute('x2', W - PAD.right - 20); line.setAttribute('y2', y);
+    line.setAttribute('x2', W - 4); line.setAttribute('y2', y);
     svg.appendChild(line);
   });
 
@@ -145,12 +145,13 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('class', `chart-line-dashed ${className}`);
     line.setAttribute('x1', PAD.left); line.setAttribute('y1', y);
-    line.setAttribute('x2', W - PAD.right - 20); line.setAttribute('y2', y);
+    line.setAttribute('x2', W - 4); line.setAttribute('y2', y);
     svg.appendChild(line);
 
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('class', 'chart-label-text');
-    text.setAttribute('x', W - PAD.right - 18); text.setAttribute('y', y + 3);
+    text.setAttribute('x', W - 4); text.setAttribute('y', y - 4);
+    text.setAttribute('text-anchor', 'end');
     text.textContent = label;
     svg.appendChild(text);
   };
