@@ -208,14 +208,14 @@ function renderChart(priceHistory, currency, targetPrice = 0) {
       }
 
       // Clamp tooltip so it doesn't overflow left or right edges
-      const tooltipW = tooltip.offsetWidth || 80;
+      tooltip.classList.remove('hidden');
+      const tooltipW = tooltip.offsetWidth;
       const minLeft = tooltipW / 2 + 4;  // half width + small padding
       const maxLeft = wrapRect.width - tooltipW / 2 - 4;
       const clampedX = Math.max(minLeft, Math.min(dotX, maxLeft));
 
       tooltip.style.left = clampedX + 'px';
       tooltip.style.top = dotY + 'px';
-      tooltip.classList.remove('hidden');
     });
     circle.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
     svg.appendChild(circle);
