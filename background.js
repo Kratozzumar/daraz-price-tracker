@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
 
   if (msg.action === 'refresh_now') {
-    refreshAllTracked(true, msg.forceSync).then(() => reply && reply({ ok: true }));
+    refreshAllTracked(true, msg.forceSync).then((res) => reply && reply({ ok: true, skipped: res?.skipped }));
     return true; // keep message channel open for async
   }
 
@@ -403,7 +403,7 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
 
   if (worklist.length === 0) {
     console.log('[DarazBG] All items are fresh. Skipping refresh.');
-    return;
+    return { skipped: true };
   }
 
   console.log(`[DarazBG] Refreshing ${worklist.length} item(s)... (forceSync: ${forceSync})`);

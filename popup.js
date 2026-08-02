@@ -940,7 +940,10 @@ document.getElementById('refresh-btn').addEventListener('click', async (e) => {
     await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (response) => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-        else resolve(response);
+        else {
+          if (response && response.skipped) showToast('All items are fresh! (Shift-Click to force sync)');
+          resolve(response);
+        }
       });
     });
   } catch (err) {
@@ -1045,6 +1048,7 @@ document.getElementById('refresh-now-btn').addEventListener('click', async (e) =
   label.textContent = forceSync ? 'Force Syncing…' : 'Refreshing…';
 
   chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (resp) => {
+    if (resp && resp.skipped) showToast('All items are fresh! (Shift-Click to force sync)');
     setTimeout(() => {
       btn.disabled = false;
       btn.classList.remove('spinning');
