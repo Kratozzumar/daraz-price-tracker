@@ -937,21 +937,21 @@ document.getElementById('refresh-btn').addEventListener('click', async (e) => {
     }
 
     // Step 2: Background refresh all favorites via HTTP
-    await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (response) => {
-        if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-        else {
-          if (response && response.skipped) showToast('All items are fresh! (Shift-Click to force sync)');
-          resolve(response);
-        }
-      });
+    // (progress banner listens for sync_progress messages and reloads the list when done)
+    chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Refresh error:', chrome.runtime.lastError);
+      } else if (response && response.skipped) {
+        showToast('All items are fresh! (Shift-Click to force sync)');
+      }
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+      btn.title = 'Refresh prices from Daraz';
     });
+    return; // early return — banner + callback handle the rest
   } catch (err) {
     console.warn('Refresh error:', err);
   }
-
-  // Reload UI with updated data
-  await loadAll();
 
   btn.disabled = false;
   btn.classList.remove('spinning');
@@ -1157,6 +1157,37 @@ function showToast(msg) {
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3000);
 }
+
+// ── Sync progress banner ───────────────────────────────────────────────────
+const syncBanner = document.getElementById('sync-banner');
+const syncLabel  = document.getElementById('sync-label');
+const syncBar    = document.getElementById('sync-bar');
+let syncDoneTimer = null;
+
+function showSyncBanner(done, total) {
+  clearTimeout(syncDoneTimer);
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  syncLabel.textContent = done < total
+    ? `Syncing ${done} of ${total}\u2026`
+    : `\u2713 Sync complete \u2014 ${total} item${total !== 1 ? 's' : ''} checked`;
+  syncBar.style.width = pct + '%';
+  syncBanner.classList.remove('hidden');
+
+  if (done >= total && total > 0) {
+    // Auto-hide after 2.5s and reload the list
+    syncDoneTimer = setTimeout(async () => {
+      syncBanner.classList.add('hidden');
+      await loadAll();
+    }, 2500);
+  }
+}
+
+// Listen for progress messages from background
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action === 'sync_progress') {
+    showSyncBanner(msg.done, msg.total);
+  }
+});
 
 document.getElementById('export-json-btn').addEventListener('click', () => {
   chrome.storage.local.get(null, data => {

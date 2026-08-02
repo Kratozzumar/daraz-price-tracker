@@ -419,6 +419,47 @@ body {
   opacity: 0.8;
 }
 
+/* ── Sync progress banner ─────────────────────────────────────── */
+.sync-banner {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+  background: rgba(99, 102, 241, 0.08);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.18);
+}
+.sync-banner:not(.hidden) {
+  max-height: 44px;
+  opacity: 1;
+}
+.sync-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #a5b4fc;
+}
+.sync-spin {
+  color: #818cf8;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.sync-track {
+  height: 3px;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sync-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a78bfa);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
 .toast {
   position: absolute;
   bottom: 20px;

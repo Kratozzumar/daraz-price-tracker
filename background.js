@@ -479,11 +479,16 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
   if (needsDom.length > 0) await _destroyScraperTab();
 
   // Merge: raw results + dom results
+  const total = worklist.length;
   const allResults = [
     ...rawResults.filter(r => r.result),
     ...domResults
   ];
 
+  // Broadcast total count so popup can initialise the banner
+  chrome.runtime.sendMessage({ action: 'sync_progress', done: 0, total }).catch(() => {});
+
+  let doneCount = 0;
   for (const { entry, result } of allResults) {
       if (!result) {
         console.log('[DarazBG] Could not fetch price for:', entry.title);
@@ -555,6 +560,10 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
       if (favDirty || histDirty) {
         await new Promise(res => chrome.storage.local.set({ favorites, recently_viewed: history }, res));
       }
+
+      // Broadcast progress after each item is saved
+      doneCount++;
+      chrome.runtime.sendMessage({ action: 'sync_progress', done: doneCount, total }).catch(() => {});
     }
 
   await new Promise(res => chrome.storage.local.set({ last_refresh_ts: Date.now() }, res));
