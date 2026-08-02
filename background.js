@@ -333,17 +333,13 @@ async function fetchViaHiddenTab(url) {
                 res({ price: current, originalPrice: original, inStock: !hasSoldOutClass && !hasUnavailableText });
                 return true;
               }
+              res(null);
               return false;
             };
 
-            if (attempt()) return;
-
-            const observer = new MutationObserver(() => {
-              if (attempt()) observer.disconnect();
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-            
-            setTimeout(() => { observer.disconnect(); res(null); }, 5000);
+            // Wait 3.5 seconds to allow Daraz's client-side JS to finish fetching 
+            // the active Flash Sale pricing from the mtop API and painting it.
+            setTimeout(attempt, 3500);
           });
         }
       }).then((results) => {
