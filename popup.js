@@ -911,13 +911,14 @@ document.getElementById('compare-back-btn').addEventListener('click', () => show
 document.getElementById('settings-btn').addEventListener('click', showSettings);
 
 // Refresh button — re-extract current page price + fetch all favorites
-document.getElementById('refresh-btn').addEventListener('click', async () => {
+document.getElementById('refresh-btn').addEventListener('click', async (e) => {
   const btn = document.getElementById('refresh-btn');
   if (btn.disabled) return;
+  const forceSync = e.shiftKey;
 
   btn.disabled = true;
   btn.classList.add('spinning');
-  btn.title = 'Refreshing prices...';
+  btn.title = forceSync ? 'Force Syncing all prices...' : 'Refreshing prices...';
 
   try {
     // Step 1: If on a Daraz product page, re-inject content.js to capture current price
@@ -937,7 +938,7 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
 
     // Step 2: Background refresh all favorites via HTTP
     await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'refresh_now' }, (response) => {
+      chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (response) => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
         else resolve(response);
       });
@@ -1035,14 +1036,15 @@ document.getElementById('notif-toggle').addEventListener('change', async (e) => 
 });
 
 // Refresh Now button
-document.getElementById('refresh-now-btn').addEventListener('click', async () => {
+document.getElementById('refresh-now-btn').addEventListener('click', async (e) => {
   const btn = document.getElementById('refresh-now-btn');
   const label = document.getElementById('refresh-now-label');
+  const forceSync = e.shiftKey;
   btn.disabled = true;
   btn.classList.add('spinning');
-  label.textContent = 'Refreshing…';
+  label.textContent = forceSync ? 'Force Syncing…' : 'Refreshing…';
 
-  chrome.runtime.sendMessage({ action: 'refresh_now' }, (resp) => {
+  chrome.runtime.sendMessage({ action: 'refresh_now', forceSync }, (resp) => {
     setTimeout(() => {
       btn.disabled = false;
       btn.classList.remove('spinning');
