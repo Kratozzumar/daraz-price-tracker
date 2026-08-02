@@ -321,6 +321,8 @@
   // ── Feature 3: Better Alternatives (Price Match) ──
   async function findCheaperAlternatives(product) {
     if (!product.title) return;
+    // Skip if running in a hidden/background tab (e.g. the Ghost Window scraper)
+    if (document.hidden || document.visibilityState === 'hidden') return;
     
     // Check if we already showed a banner to avoid spamming
     if (document.getElementById('daraz-tracker-alt-banner')) return;
@@ -350,7 +352,10 @@
         injectAlternativeBanner(count, bestAlt, product.currency);
       }
     } catch (e) {
-      console.warn('[DarazTracker] Alt search failed', e);
+      // Silently ignore network errors in background contexts
+      if (document.visibilityState !== 'hidden') {
+        console.warn('[DarazTracker] Alt search failed', e);
+      }
     }
   }
 
