@@ -458,37 +458,44 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
   let updatedCount = 0;
   let priceDropCount = 0;
 
-  // SEQUENTIAL PROCESSING via a single shared scraper tab
-  // First, do a fast parallel sweep using raw HTTP (no tabs).
-  // Then, for any that still need DOM rendering, go one by one through the single tab.
+  const total = worklist.length;
+  let doneCount = 0;
+
+  // Broadcast 0/total immediately so the banner appears right away
+  chrome.runtime.sendMessage({ action: 'sync_progress', done: 0, total }).catch(() => {});
+
+  // Phase 1: Try raw HTTP for all items in parallel.
+  // Each item fires its own progress tick as soon as it resolves.
   const rawResults = await Promise.all(worklist.map(async (entry) => {
     const result = await fetchProductPrice(entry);
+    if (result) {
+      doneCount++;
+      chrome.runtime.sendMessage({ action: 'sync_progress', done: doneCount, total }).catch(() => {});
+    }
     return { entry, result };
   }));
 
-  // Identify items that raw fetch couldn't price — need DOM rendering
+  // Phase 2: Items that raw HTTP couldn't price → DOM render via single tab.
+  // Each item fires progress after it's scraped.
   const needsDom = rawResults.filter(r => !r.result && allowWindowFallback);
   const domResults = [];
   for (const { entry } of needsDom) {
     console.log('[DarazBG] DOM scraping:', entry.title);
     const result = await scrapeUrlViaSingleTab(entry.url);
+    doneCount++;
+    chrome.runtime.sendMessage({ action: 'sync_progress', done: doneCount, total }).catch(() => {});
     domResults.push({ entry, result });
   }
 
   // Clean up the scraper window after all DOM work is done
   if (needsDom.length > 0) await _destroyScraperTab();
 
-  // Merge: raw results + dom results
-  const total = worklist.length;
+  // Merge results (items that got a price from either phase)
   const allResults = [
     ...rawResults.filter(r => r.result),
     ...domResults
   ];
 
-  // Broadcast total count so popup can initialise the banner
-  chrome.runtime.sendMessage({ action: 'sync_progress', done: 0, total }).catch(() => {});
-
-  let doneCount = 0;
   for (const { entry, result } of allResults) {
       if (!result) {
         console.log('[DarazBG] Could not fetch price for:', entry.title);
@@ -560,13 +567,12 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
       if (favDirty || histDirty) {
         await new Promise(res => chrome.storage.local.set({ favorites, recently_viewed: history }, res));
       }
-
-      // Broadcast progress after each item is saved
-      doneCount++;
-      chrome.runtime.sendMessage({ action: 'sync_progress', done: doneCount, total }).catch(() => {});
     }
 
   await new Promise(res => chrome.storage.local.set({ last_refresh_ts: Date.now() }, res));
+  // Final broadcast — ensures banner reaches 100% and shows "complete"
+  chrome.runtime.sendMessage({ action: 'sync_progress', done: total, total }).catch(() => {});
   console.log('[DarazBG] Refresh complete.', updatedCount, 'price changes,', priceDropCount, 'drops.');
+
 }
 
