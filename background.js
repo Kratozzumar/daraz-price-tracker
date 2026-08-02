@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
 
   if (msg.action === 'refresh_now') {
-    refreshAllTracked(false, msg.forceSync).then((res) => reply && reply({ ok: true, skipped: res?.skipped }));
+    refreshAllTracked(true, msg.forceSync).then((res) => reply && reply({ ok: true, skipped: res?.skipped }));
     return true; // keep message channel open for async
   }
 
@@ -152,16 +152,10 @@ function parsePriceFromHtml(html) {
         if (p > 0) return { price: p, source: '__moduleData__' };
       }
       
-      const pdtDiscountMatch = innerJson.match(/"pdt_discount_price"\s*:\s*"?[^\d]*([\d.,]+)"?/);
-      if (pdtDiscountMatch) {
-        const p = parseFloat(pdtDiscountMatch[1].replace(/,/g, ''));
-        if (p > 0) return { price: p, source: '__moduleData__pdtDiscount' };
-      }
-      
-      const pdtMatch = innerJson.match(/"pdt_price"\s*:\s*"?[^\d]*([\d.,]+)"?/);
-      if (pdtMatch) {
-        const p = parseFloat(pdtMatch[1].replace(/,/g, ''));
-        if (p > 0) return { price: p, source: '__moduleData__pdt' };
+      const pdtSaleMatch = innerJson.match(/"salePrice"\s*:\s*"?[^\d]*([\d.,]+)"?/);
+      if (pdtSaleMatch) {
+        const p = parseFloat(pdtSaleMatch[1].replace(/,/g, ''));
+        if (p > 0) return { price: p, source: '__moduleData__salePrice' };
       }
     } catch (_) {}
   }
@@ -267,10 +261,30 @@ async function fetchProductPrice(entry) {
   }
 }
 
-// ── Reliable fallback: render the page for real in a hidden background tab ─
+// ── Shared Hidden Window for Reliable DOM Fetching ─────────────────────────
+let hiddenWindowId = null;
+let activeHiddenTabs = 0;
+
+async function getOrCreateHiddenWindow() {
+  if (hiddenWindowId) {
+    try {
+      await chrome.windows.get(hiddenWindowId);
+      return hiddenWindowId;
+    } catch (e) {
+      // Window was closed
+    }
+  }
+  const win = await chrome.windows.create({ url: 'about:blank', focused: false, state: 'minimized', type: 'popup' });
+  hiddenWindowId = win.id;
+  return hiddenWindowId;
+}
+
 async function fetchViaHiddenTab(url) {
-  return new Promise((resolve) => {
-    chrome.tabs.create({ url, active: false }, (tab) => {
+  return new Promise(async (resolve) => {
+    activeHiddenTabs++;
+    const winId = await getOrCreateHiddenWindow();
+
+    chrome.tabs.create({ windowId: winId, url, active: false }, (tab) => {
       let resolved = false;
 
       const complete = (data) => {
@@ -278,13 +292,19 @@ async function fetchViaHiddenTab(url) {
         resolved = true;
         clearTimeout(fallbackTimeout);
         chrome.tabs.remove(tab.id).catch(() => {});
+        
+        activeHiddenTabs--;
+        if (activeHiddenTabs <= 0 && hiddenWindowId) {
+          chrome.windows.remove(hiddenWindowId).catch(() => {});
+          hiddenWindowId = null;
+        }
         resolve(data);
       };
 
       const fallbackTimeout = setTimeout(() => {
         console.warn('[DarazBG] Hidden tab timeout for', url);
         complete(null);
-      }, 8000);
+      }, 15000);
 
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -298,7 +318,7 @@ async function fetchViaHiddenTab(url) {
             const attempt = () => {
               const priceEl = document.querySelector('.pdp-price_type_normal');
               const origPriceEl = document.querySelector('.pdp-price_type_deleted');
-              if (priceEl && priceEl.innerText) {
+              if (priceEl && priceEl.innerText.trim().length > 0) {
                 const current = getStrPrice(priceEl.innerText);
                 let original = current;
                 if (origPriceEl && origPriceEl.innerText) {
