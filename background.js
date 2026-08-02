@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
 
   if (msg.action === 'refresh_now') {
-    refreshAllTracked(true, msg.forceSync).then((res) => reply && reply({ ok: true, skipped: res?.skipped }));
+    refreshAllTracked(false, msg.forceSync).then((res) => reply && reply({ ok: true, skipped: res?.skipped }));
     return true; // keep message channel open for async
   }
 
@@ -150,6 +150,18 @@ function parsePriceFromHtml(html) {
       if (saleM) {
         const p = parseFloat(saleM[1]);
         if (p > 0) return { price: p, source: '__moduleData__' };
+      }
+      
+      const pdtDiscountMatch = innerJson.match(/"pdt_discount_price"\s*:\s*"?[^\d]*([\d.,]+)"?/);
+      if (pdtDiscountMatch) {
+        const p = parseFloat(pdtDiscountMatch[1].replace(/,/g, ''));
+        if (p > 0) return { price: p, source: '__moduleData__pdtDiscount' };
+      }
+      
+      const pdtMatch = innerJson.match(/"pdt_price"\s*:\s*"?[^\d]*([\d.,]+)"?/);
+      if (pdtMatch) {
+        const p = parseFloat(pdtMatch[1].replace(/,/g, ''));
+        if (p > 0) return { price: p, source: '__moduleData__pdt' };
       }
     } catch (_) {}
   }
