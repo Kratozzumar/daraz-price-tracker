@@ -137,7 +137,7 @@
 
   function getItemId() {
     const url = window.location.href;
-    const m = url.match(/-i(\d+)-s(\d+)/) || url.match(/-i(\d+)/);
+    const m = url.match(/[/-]i(\d+)-s(\d+)/) || url.match(/[/-]i(\d+)/);
     if (!m) return null;
     return { itemId: m[1], skuId: m[2] || '0' };
   }
