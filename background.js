@@ -305,7 +305,7 @@ async function scrapeUrlViaSingleTab(url) {
   // Navigate the existing tab to the new URL
   await chrome.tabs.update(tabId, { url });
 
-  // Wait for the tab to reach 'complete' status
+  // Wait for the tab to reach 'complete' status (max 12s)
   await new Promise((resolve) => {
     const timeout = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
@@ -322,25 +322,45 @@ async function scrapeUrlViaSingleTab(url) {
     chrome.tabs.onUpdated.addListener(listener);
   });
 
-  // Wait an extra 3.5s for Daraz's JS to fetch and paint the Flash Sale price
-  await new Promise(r => setTimeout(r, 3500));
-
-  // Inject the extraction script
+  // Smart polling: inject a script that polls every 200ms until the price
+  // element appears (or 6s max). Stops the moment price is found — no fixed wait.
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const getStrPrice = (str) => {
-          const s = str.trim().replace(/^[^\d]+/, '').replace(/,/g, '');
-          return parseFloat(s) || 0;
-        };
-        const priceEl = document.querySelector('.pdp-price_type_normal');
-        const origPriceEl = document.querySelector('.pdp-price_type_deleted');
-        if (!priceEl || !priceEl.innerText.trim()) return null;
-        const current = getStrPrice(priceEl.innerText);
-        const original = origPriceEl ? (getStrPrice(origPriceEl.innerText) || current) : current;
-        const soldOut = !!document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
-        return { price: current, originalPrice: original, inStock: !soldOut };
+        return new Promise((resolve) => {
+          const MAX_MS = 6000;
+          const INTERVAL = 200;
+          const started = Date.now();
+
+          const getStrPrice = (str) => {
+            const s = str.trim().replace(/^[^\d]+/, '').replace(/,/g, '');
+            return parseFloat(s) || 0;
+          };
+
+          const check = () => {
+            const priceEl = document.querySelector('.pdp-price_type_normal');
+            if (priceEl && priceEl.innerText.trim()) {
+              const current = getStrPrice(priceEl.innerText);
+              if (current > 0) {
+                const origPriceEl = document.querySelector('.pdp-price_type_deleted');
+                const original = origPriceEl ? (getStrPrice(origPriceEl.innerText) || current) : current;
+                const soldOut = !!document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
+                resolve({ price: current, originalPrice: original, inStock: !soldOut });
+                return true;
+              }
+            }
+            if (Date.now() - started >= MAX_MS) {
+              resolve(null);
+              return true;
+            }
+            return false;
+          };
+
+          if (!check()) {
+            const iv = setInterval(() => { if (check()) clearInterval(iv); }, INTERVAL);
+          }
+        });
       }
     });
     const data = results && results[0] && results[0].result;
