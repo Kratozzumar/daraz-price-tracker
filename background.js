@@ -261,101 +261,97 @@ async function fetchProductPrice(entry) {
   }
 }
 
-// ── Shared Hidden Window for Reliable DOM Fetching ─────────────────────────
-let hiddenWindowId = null;
-let activeHiddenTabs = 0;
+// ── Single-Tab DOM Scraper ────────────────────────────────────────────────
+// Uses ONE minimized popup window with ONE reused tab.
+// The tab navigates from URL to URL — no new tabs created per item.
+let _scraperWinId = null;
+let _scraperTabId = null;
 
-async function getOrCreateHiddenWindow() {
-  if (hiddenWindowId) {
-    try {
-      await chrome.windows.get(hiddenWindowId);
-      return hiddenWindowId;
-    } catch (e) {
-      // Window was closed
-    }
+async function _ensureScraperTab() {
+  // Check if the window still exists
+  if (_scraperWinId) {
+    try { await chrome.windows.get(_scraperWinId); }
+    catch (_) { _scraperWinId = null; _scraperTabId = null; }
   }
-  const win = await chrome.windows.create({ url: 'about:blank', focused: false, state: 'minimized', type: 'popup' });
-  hiddenWindowId = win.id;
-  return hiddenWindowId;
+  // Create the window + tab if needed
+  if (!_scraperWinId) {
+    const win = await chrome.windows.create({
+      url: 'about:blank',
+      focused: false,
+      state: 'minimized',
+      type: 'popup',
+      width: 1, height: 1
+    });
+    _scraperWinId = win.id;
+    _scraperTabId = win.tabs[0].id;
+    console.log('[DarazBG] Scraper window created:', _scraperWinId);
+  }
+  return _scraperTabId;
 }
 
-async function fetchViaHiddenTab(url) {
-  return new Promise(async (resolve) => {
-    activeHiddenTabs++;
-    const winId = await getOrCreateHiddenWindow();
+async function _destroyScraperTab() {
+  if (_scraperWinId) {
+    try { await chrome.windows.remove(_scraperWinId); } catch (_) {}
+    _scraperWinId = null;
+    _scraperTabId = null;
+    console.log('[DarazBG] Scraper window destroyed.');
+  }
+}
 
-    chrome.tabs.create({ windowId: winId, url, active: false }, (tab) => {
-      let resolved = false;
+// Scrape a single URL by navigating the ONE shared tab to it.
+async function scrapeUrlViaSingleTab(url) {
+  const tabId = await _ensureScraperTab();
 
-      const complete = (data) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimeout);
-        chrome.tabs.remove(tab.id).catch(() => {});
-        
-        activeHiddenTabs--;
-        if (activeHiddenTabs <= 0 && hiddenWindowId) {
-          chrome.windows.remove(hiddenWindowId).catch(() => {});
-          hiddenWindowId = null;
-        }
-        resolve(data);
-      };
+  // Navigate the existing tab to the new URL
+  await chrome.tabs.update(tabId, { url });
 
-      const fallbackTimeout = setTimeout(() => {
-        console.warn('[DarazBG] Hidden tab timeout for', url);
-        complete(null);
-      }, 15000);
+  // Wait for the tab to reach 'complete' status
+  await new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 12000);
 
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          return new Promise((res) => {
-            const getStrPrice = (str) => {
-              const s = str.trim().replace(/^[^\d]+/, '').replace(/,/g, '');
-              return parseFloat(s) || 0;
-            };
-
-            const attempt = () => {
-              const priceEl = document.querySelector('.pdp-price_type_normal');
-              const origPriceEl = document.querySelector('.pdp-price_type_deleted');
-              if (priceEl && priceEl.innerText.trim().length > 0) {
-                const current = getStrPrice(priceEl.innerText);
-                let original = current;
-                if (origPriceEl && origPriceEl.innerText) {
-                  original = getStrPrice(origPriceEl.innerText) || current;
-                }
-                
-                const hasSoldOutClass = document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
-                const hasUnavailableText = Array.from(document.querySelectorAll('*')).some(el => 
-                  el.childNodes.length === 1 && el.innerText.toLowerCase().includes('currently unavailable')
-                );
-                
-                res({ price: current, originalPrice: original, inStock: !hasSoldOutClass && !hasUnavailableText });
-                return true;
-              }
-              res(null);
-              return false;
-            };
-
-            // Wait 3.5 seconds to allow Daraz's client-side JS to finish fetching 
-            // the active Flash Sale pricing from the mtop API and painting it.
-            setTimeout(attempt, 3500);
-          });
-        }
-      }).then((results) => {
-        if (results && results[0] && results[0].result) {
-          console.log('[DarazBG] Price found via hidden tab:', results[0].result.price);
-          complete({ ...results[0].result, source: 'hidden-tab' });
-        } else {
-          console.warn('[DarazBG] Script execution yielded no price for', url);
-          complete(null);
-        }
-      }).catch(err => {
-        console.warn('[DarazBG] Scripting error on hidden tab:', err);
-        complete(null);
-      });
-    });
+    const listener = (updatedTabId, info) => {
+      if (updatedTabId === tabId && info.status === 'complete') {
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
   });
+
+  // Wait an extra 3.5s for Daraz's JS to fetch and paint the Flash Sale price
+  await new Promise(r => setTimeout(r, 3500));
+
+  // Inject the extraction script
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const getStrPrice = (str) => {
+          const s = str.trim().replace(/^[^\d]+/, '').replace(/,/g, '');
+          return parseFloat(s) || 0;
+        };
+        const priceEl = document.querySelector('.pdp-price_type_normal');
+        const origPriceEl = document.querySelector('.pdp-price_type_deleted');
+        if (!priceEl || !priceEl.innerText.trim()) return null;
+        const current = getStrPrice(priceEl.innerText);
+        const original = origPriceEl ? (getStrPrice(origPriceEl.innerText) || current) : current;
+        const soldOut = !!document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
+        return { price: current, originalPrice: original, inStock: !soldOut };
+      }
+    });
+    const data = results && results[0] && results[0].result;
+    if (data && data.price > 0) {
+      console.log('[DarazBG] Scraped via single tab:', url, '→', data.price);
+      return { ...data, source: 'single-tab' };
+    }
+  } catch (err) {
+    console.warn('[DarazBG] Script inject error:', err.message);
+  }
+  return null;
 }
 
 // ── Orchestrator ──
@@ -364,12 +360,11 @@ async function fetchPriceReliably(entry, allowWindowFallback = false) {
   const rawResult = await fetchProductPrice(entry);
   if (rawResult) return rawResult;
 
-  // If that failed, fall back to a hidden background tab ONLY if explicitly
-  // allowed (i.e. manual user refreshes). Background alarms must NEVER
-  // open windows, as they steal focus and annoy the user.
+  // If raw HTML failed (e.g. Flash Sale only visible after JS runs),
+  // fall back to the single shared scraper tab.
   if (allowWindowFallback) {
-    console.log('[DarazBG] Falling back to hidden tab for:', entry.title);
-    return await fetchViaHiddenTab(entry.url);
+    console.log('[DarazBG] Falling back to single-tab scraper for:', entry.title);
+    return await scrapeUrlViaSingleTab(entry.url);
   }
 
   return null;
@@ -439,19 +434,33 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
   let updatedCount = 0;
   let priceDropCount = 0;
 
-  // PARALLEL PROCESSING
-  const CONCURRENCY = 4;
-  for (let i = 0; i < worklist.length; i += CONCURRENCY) {
-    const batch = worklist.slice(i, i + CONCURRENCY);
-    console.log(`[DarazBG] Processing batch ${Math.floor(i/CONCURRENCY) + 1} of ${Math.ceil(worklist.length/CONCURRENCY)}`);
+  // SEQUENTIAL PROCESSING via a single shared scraper tab
+  // First, do a fast parallel sweep using raw HTTP (no tabs).
+  // Then, for any that still need DOM rendering, go one by one through the single tab.
+  const rawResults = await Promise.all(worklist.map(async (entry) => {
+    const result = await fetchProductPrice(entry);
+    return { entry, result };
+  }));
 
-    const results = await Promise.all(batch.map(async (entry) => {
-      const result = await fetchPriceReliably(entry, allowWindowFallback);
-      return { entry, result };
-    }));
+  // Identify items that raw fetch couldn't price — need DOM rendering
+  const needsDom = rawResults.filter(r => !r.result && allowWindowFallback);
+  const domResults = [];
+  for (const { entry } of needsDom) {
+    console.log('[DarazBG] DOM scraping:', entry.title);
+    const result = await scrapeUrlViaSingleTab(entry.url);
+    domResults.push({ entry, result });
+  }
 
-    // Process results sequentially to avoid storage race conditions
-    for (const { entry, result } of results) {
+  // Clean up the scraper window after all DOM work is done
+  if (needsDom.length > 0) await _destroyScraperTab();
+
+  // Merge: raw results + dom results
+  const allResults = [
+    ...rawResults.filter(r => r.result),
+    ...domResults
+  ];
+
+  for (const { entry, result } of allResults) {
       if (!result) {
         console.log('[DarazBG] Could not fetch price for:', entry.title);
         continue;
@@ -523,7 +532,6 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
         await new Promise(res => chrome.storage.local.set({ favorites, recently_viewed: history }, res));
       }
     }
-  }
 
   await new Promise(res => chrome.storage.local.set({ last_refresh_ts: Date.now() }, res));
   console.log('[DarazBG] Refresh complete.', updatedCount, 'price changes,', priceDropCount, 'drops.');
