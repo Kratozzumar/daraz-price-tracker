@@ -278,12 +278,16 @@ async function _ensureScraperTab() {
     const win = await chrome.windows.create({
       url: 'about:blank',
       focused: false,
-      state: 'minimized',
       type: 'popup',
-      width: 1, height: 1
+      width: 1,
+      height: 1,
+      left: -10000,
+      top: -10000
     });
     _scraperWinId = win.id;
     _scraperTabId = win.tabs[0].id;
+    // Minimize after creation (minimized is not valid in create())
+    await chrome.windows.update(_scraperWinId, { state: 'minimized' }).catch(() => {});
     console.log('[DarazBG] Scraper window created:', _scraperWinId);
   }
   return _scraperTabId;
