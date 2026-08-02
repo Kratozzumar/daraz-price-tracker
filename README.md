@@ -6,7 +6,7 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-brightgreen)
-![Version](https://img.shields.io/badge/Version-3.0.0-orange)
+![Version](https://img.shields.io/badge/Version-4.0.0-orange)
 ![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-10b981)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Mac%20%7C%20Linux-blue)
 
@@ -19,7 +19,8 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 |---|---|
 | 🔍 **Auto Price Capture** | Prices captured automatically when you visit any Daraz product page |
 | ⭐ **Favorites** | Star items to track them long-term with full price history |
-| 🔄 **Background Refresh** | Automatically checks prices on favorites even when you're not browsing Daraz |
+| 🔄 **Auto Background Refresh** | Silently checks prices on a schedule (every 6 hours by default, configurable) |
+| ⚡ **Force Sync** | Shift+Click the refresh button to instantly re-check all items, bypassing cache |
 | 🔔 **Price Drop Alerts** | Chrome notifications when a favorited item's price drops |
 | 🌍 **Multi-Region & Currency** | Supports Daraz LK, PK, BD, NP — auto-detects currency (Rs./৳/NPR) |
 
@@ -31,6 +32,16 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 | 🟢 **Best Time to Buy** | Smart badges: "Great Deal", "Fair Price", or "Wait for Drop" based on price position vs. historical range |
 | 📦 **Stock Alerts** | Detects out-of-stock products and notifies you when they're back in stock |
 | 🏷️ **Sale & Coupon Detection** | Scrapes vouchers, promotions, and flash sale labels from product pages |
+| 💡 **Cheaper Alternatives** | Automatically searches for similar items at lower prices while you browse |
+
+### ⚡ Smart Refresh Engine
+| Feature | Description |
+|---|---|
+| 🚀 **Parallel HTTP Fetch** | All items fetched simultaneously via raw HTTP — extremely fast with zero browser tabs |
+| 🖥️ **Single-Tab DOM Scraper** | For Flash Sale / JS-rendered prices, one invisible minimized window cycles through all items — never opens visible tabs |
+| ⏱️ **Smart Polling** | Instead of a fixed wait time, checks for the price every 200ms — stops the moment it appears (up to 6s max) |
+| 🧠 **Smart Caching** | Items refreshed within 2 hours are skipped during auto-refresh — only Force Sync bypasses this |
+| 📊 **Live Progress Banner** | Animated indigo progress bar with live item counter ("Syncing 8 of 15…") visible in the popup during Force Sync |
 
 ### 📊 Charts & Analysis
 | Feature | Description |
@@ -102,8 +113,19 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 ### Favorites & Price Alerts
 1. Click the **⭐ star** on any item to add it to Favorites
 2. Switch to the **Favorites** tab to see all starred items
-3. The extension automatically checks prices in the background
+3. The extension automatically checks prices in the background every 6 hours
 4. You'll get a **Chrome notification** when a price drops 📉
+
+### Manual Refresh & Force Sync
+- **Regular refresh** — Click the ↻ button to refresh items older than 2 hours
+- **Force Sync** — **Shift+Click** the ↻ button to force-refresh ALL items immediately, ignoring cache
+- A **live progress banner** appears during sync: `Syncing 3 of 15…` with an animated progress bar
+- All refreshes happen **completely in the background** — no visible tabs ever open
+
+### Flash Sale Prices
+The extension correctly captures Flash Sale discounted prices. When Force Syncing:
+1. Items with standard pricing are fetched instantly via HTTP (no tabs)
+2. Items with Flash Sale / JS-rendered prices are loaded in a **single invisible minimized window** that navigates through each item one by one — you will never see any tabs popping up
 
 ### Price Targets
 1. Open any favorited item's **detail view**
@@ -137,10 +159,10 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 daraz-price-tracker/
 ├── manifest.json      # Extension config (Manifest V3)
 ├── content.js         # Runs on Daraz pages — scrapes prices, promos, stock status
-├── background.js      # Service worker — alarms, notifications, background refresh
+├── background.js      # Service worker — alarms, notifications, smart refresh engine
 ├── popup.html         # Extension popup UI structure
 ├── popup.css          # Styling — dark/light themes, glassmorphism, animations
-├── popup.js           # Popup logic — views, charts, comparison, settings
+├── popup.js           # Popup logic — views, charts, comparison, settings, progress banner
 ├── icon48.png         # Toolbar icon (48×48)
 └── icon128.png        # Extension page icon (128×128)
 ```
@@ -152,21 +174,37 @@ You visit a Daraz product page
         ↓
 content.js extracts price, stock status, promotions from DOM
   (MutationObserver detects variant/color switches automatically)
+  (Skips processing in hidden/background tabs — avoids Ghost Window interference)
         ↓
 Saves to chrome.storage.local
         ↓
-background.js runs periodic alarms
-  → Fetches HTML for each favorite
-  → Parses price with 4 fallback strategies
+── Auto Refresh (every 6 hours, silent) ──────────────────────────────
+background.js alarm fires
+  → Skips items updated within last 2 hours (smart cache)
+  → Fetches raw HTML via HTTP for remaining items (parallel, no tabs)
+  → Parses price using JSON-LD → __moduleData__ → JS data fallback chain
   → Detects price changes & stock status changes
   → Checks against target prices
-  → Sends Chrome notifications
-        ↓
+  → Sends Chrome notifications for drops / back-in-stock / target hit
+
+── Force Sync (manual, Shift+Click) ──────────────────────────────────
+  → Ignores 2-hour cache — refreshes everything
+  → Phase 1: All items fetched via raw HTTP in parallel (instant, no tabs)
+  → Phase 2: Items with JS-rendered prices (Flash Sales) loaded one by one
+             in a single invisible minimized popup window using chrome.tabs.update
+             (navigates the same tab through each URL — never creates new tabs)
+  → Smart polling: checks for price every 200ms, stops when found (max 6s)
+  → Live progress banner in popup: "Syncing 8 of 15…" with animated bar
+  → Ghost window destroyed when all items are done
+  → Banner shows "✓ Sync complete" then auto-hides and refreshes the list
+
+── Popup UI ──────────────────────────────────────────────────────────
 popup.js renders the UI
   → History & Favorites lists with search/sort/filter
   → Price detail view with enhanced SVG charts
   → Price comparison table
   → Settings with theme, export/import, tags
+  → Live sync progress banner (listens for sync_progress messages from background)
 ```
 
 ---
@@ -180,6 +218,7 @@ This extension is built with **privacy-first** principles:
 - ✅ **No external APIs** — only connects to Daraz domains for price checks
 - ✅ **No account required** — works immediately after install
 - ✅ **Open source** — audit the code yourself
+- ✅ **No visible tabs** — all background refreshes happen completely silently
 
 ---
 
@@ -199,7 +238,7 @@ This extension is built with **privacy-first** principles:
 - **Manifest V3** — Latest Chrome extension platform
 - **Vanilla JS** — No frameworks, no build step, no dependencies
 - **SVG Charts** — Custom-built interactive price history visualization
-- **Chrome APIs** — `storage.local`, `alarms`, `notifications`, `tabs`, `scripting`, `downloads`
+- **Chrome APIs** — `storage.local`, `alarms`, `notifications`, `tabs`, `scripting`, `windows`, `downloads`
 - **CSS3** — Dark/light themes with glassmorphism, CSS variables, and micro-animations
 
 ---
@@ -212,9 +251,28 @@ This extension is built with **privacy-first** principles:
 | `tabs` | Detect when you're on a Daraz page and show badge |
 | `alarms` | Schedule periodic background price checks |
 | `notifications` | Alert you when a price drops or hits your target |
-| `scripting` | Inject the price scraper on Daraz pages |
+| `scripting` | Inject the price scraper on Daraz pages; extract prices from the invisible sync window |
 | `downloads` | Export data as JSON/CSV files |
+| `windows` | Create the single invisible minimized window used for Force Sync DOM scraping |
 | `host_permissions` (daraz.*) | Access Daraz pages to read prices |
+
+---
+
+## 🔄 Changelog
+
+### v4.0.0 — Smart Refresh Engine
+- ⚡ **Force Sync** (Shift+Click refresh) — bypasses cache and re-fetches all items immediately
+- 🖥️ **Single-Tab Ghost Window** — Flash Sale prices correctly captured without opening visible tabs
+- ⏱️ **Smart Polling** — 200ms polling replaces fixed waits; stops the moment price is found
+- 📊 **Live Progress Banner** — animated indigo bar + item counter visible during Force Sync
+- 🧠 **Smart Cache** — 2-hour cooldown prevents redundant auto-refresh calls
+- 🛡️ **Background Tab Guard** — content.js skips expensive operations in invisible scraper tabs
+
+### v3.0.0 — Major Feature Upgrade
+- 14 new features: price targets, trend prediction, deal badges, tags, export/import, dark/light mode, search, sort, stock alerts, comparison view, sale detection, cheaper alternatives, wishlist sharing, % change badge
+
+### v2.0.0 — Foundation
+- Core tracking, favorites, background refresh, price history charts, multi-region support
 
 ---
 
