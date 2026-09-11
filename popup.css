@@ -391,6 +391,31 @@ body {
 .star-btn.pinned { color: var(--gold); }
 .star-btn.pinned svg { fill: var(--gold); }
 
+/* ── Card actions (star + delete) ── */
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 0;
+  opacity: 0;
+  transition: opacity 0.18s, color 0.18s, transform 0.15s;
+  flex-shrink: 0;
+}
+.item-card:hover .delete-btn { opacity: 1; }
+.delete-btn:hover { color: var(--red); transform: scale(1.2); }
+
 /* ── Empty states ── */
 .empty {
   display: flex;

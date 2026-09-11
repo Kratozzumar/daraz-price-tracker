@@ -579,11 +579,12 @@ function getUpcomingSale() {
   return nextSale;
 }
 
-function makeCard(product, isFav, onStarClick, onCardClick) {
+function makeCard(product, isFav, onStarClick, onCardClick, onDelete) {
   const card = document.createElement('div');
   card.className = 'item-card';
   card.addEventListener('click', (e) => {
     if (e.target.closest('.star-btn')) return;
+    if (e.target.closest('.delete-btn')) return;
     onCardClick(product);
   });
 
@@ -682,12 +683,27 @@ function makeCard(product, isFav, onStarClick, onCardClick) {
 
   card.appendChild(pricing);
 
+  // Right-side action buttons (star + delete)
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
   const star = document.createElement('button');
   star.className = 'star-btn' + (isFav ? ' pinned' : '');
   star.title = isFav ? 'Remove from favorites' : 'Add to favorites';
   star.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="${isFav ? '#f59e0b' : 'none'}" stroke="${isFav ? '#f59e0b' : 'currentColor'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
   star.addEventListener('click', (e) => { e.stopPropagation(); onStarClick(product); });
-  card.appendChild(star);
+  actions.appendChild(star);
+
+  if (onDelete) {
+    const del = document.createElement('button');
+    del.className = 'delete-btn';
+    del.title = 'Delete item';
+    del.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+    del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(product); });
+    actions.appendChild(del);
+  }
+
+  card.appendChild(actions);
 
   return card;
 }
@@ -715,6 +731,18 @@ async function toggleFav(product, currentFavs) {
 
   await new Promise(res => chrome.storage.local.set({ favorites }, res));
   await loadAll();
+}
+
+// ── Delete item from history and/or favorites ─────────────────────────────
+async function deleteItem(product) {
+  const key = product.key || `${product.itemId}_${product.skuId}`;
+  const data = await new Promise(res => chrome.storage.local.get(['favorites', 'recently_viewed'], res));
+  const favorites = data.favorites || {};
+  const history  = (data.recently_viewed || []).filter(h => (h.key || `${h.itemId}_${h.skuId}`) !== key);
+  delete favorites[key];
+  await new Promise(res => chrome.storage.local.set({ favorites, recently_viewed: history }, res));
+  await loadAll();
+  showToast('Item deleted');
 }
 
 // ── Sort ─────────────────────────────────────────────────────────────────────
@@ -769,7 +797,8 @@ async function loadAll() {
       const key = `${p.itemId}_${p.skuId}`;
       histList.appendChild(makeCard(p, !!favorites[key],
         (prod) => toggleFav(prod, favorites),
-        (prod) => chrome.tabs.create({ url: prod.url })
+        (prod) => chrome.tabs.create({ url: prod.url }),
+        (prod) => deleteItem(prod)
       ));
     });
   }
@@ -852,7 +881,8 @@ async function loadAll() {
           } else {
             showDetail(prod);
           }
-        }
+        },
+        (prod) => deleteItem(prod)
       );
 
       if (compareMode) {
