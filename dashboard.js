@@ -566,6 +566,10 @@ $('refresh-btn').onclick = (e) => {
   btn.classList.add('spinning');
   chrome.runtime.sendMessage({ action: 'refresh_now', forceSync: e.shiftKey }, (resp) => {
     if (chrome.runtime.lastError) showToast('Refresh failed — try again');
+    else if (resp && resp.blocked) {
+      const at = new Date(resp.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      showToast(`⏸ Daraz is limiting requests — sync paused until ${at} to keep your account safe`);
+    }
     else if (resp && resp.skipped) showToast('All prices are fresh! (Shift+Click to force sync)');
     btn.disabled = false;
     btn.classList.remove('spinning');
