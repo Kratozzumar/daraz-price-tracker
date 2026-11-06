@@ -329,19 +329,16 @@ async function _ensureScraperTab() {
   }
   // Create the window + tab if needed
   if (!_scraperWinId) {
+    // Chrome rejects windows placed mostly off-screen ("Bounds must be at least
+    // 50% within visible screen space"), so open it minimized instead.
+    // `state: 'minimized'` can't be combined with position/size/focused.
     const win = await chrome.windows.create({
       url: 'about:blank',
-      focused: false,
       type: 'popup',
-      width: 1,
-      height: 1,
-      left: -10000,
-      top: -10000
+      state: 'minimized'
     });
     _scraperWinId = win.id;
     _scraperTabId = win.tabs[0].id;
-    // Minimize after creation (minimized is not valid in create())
-    await chrome.windows.update(_scraperWinId, { state: 'minimized' }).catch(() => {});
     console.log('[DarazBG] Scraper window created:', _scraperWinId);
   }
   return _scraperTabId;
@@ -356,85 +353,67 @@ async function _destroyScraperTab() {
   }
 }
 
+// Runs inside the product page: waits for the price element and reads it.
+// Returns {wrongPage} if the tab still shows the previous page (tab is reused).
+function pollForPrice(expectMarker, maxMs) {
+  return new Promise((resolve) => {
+    if (!location.href.includes(expectMarker)) return resolve({ wrongPage: true });
+    const started = Date.now();
+    const num = (s) => parseFloat(String(s).trim().replace(/^[^\d]+/, '').replace(/,/g, '')) || 0;
+    const check = () => {
+      const priceEl = document.querySelector('.pdp-price_type_normal');
+      const current = priceEl ? num(priceEl.innerText) : 0;
+      if (current > 0) {
+        const origEl = document.querySelector('.pdp-price_type_deleted');
+        const soldOut = !!document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
+        resolve({ price: current, originalPrice: (origEl && num(origEl.innerText)) || current, inStock: !soldOut });
+        return true;
+      }
+      if (Date.now() - started >= maxMs) { resolve({ gaveUp: true }); return true; }
+      return false;
+    };
+    if (!check()) {
+      const iv = setInterval(() => { if (check()) clearInterval(iv); }, 150);
+    }
+  });
+}
+
 // Scrape a single URL by navigating the ONE shared tab to it.
+// Faster than before: starts looking for the price as soon as the new page
+// exists, instead of waiting up to 12s for every ad/image to finish loading.
+const SCRAPE_DEADLINE_MS = 12000;
 async function scrapeUrlViaSingleTab(url) {
   const tabId = await _ensureScraperTab();
-
-  // Navigate the existing tab to the new URL
   await chrome.tabs.update(tabId, { url });
 
-  // Wait for the tab to reach 'complete' status (max 12s)
-  await new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }, 12000);
+  // Something unique to this product's URL (item id "-i123…") so we never
+  // read the previous product still showing in the reused tab.
+  const idMatch = url.match(/-i(\d+)/);
+  const marker = idMatch ? `-i${idMatch[1]}` : new URL(url).pathname;
+  const deadline = Date.now() + SCRAPE_DEADLINE_MS;
 
-    const listener = (updatedTabId, info) => {
-      if (updatedTabId === tabId && info.status === 'complete') {
-        clearTimeout(timeout);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+  while (Date.now() < deadline) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (isBlockPage(t.url)) return { blocked: true }; // captcha → stop, don't try to get past it
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId },
+        injectImmediately: true,
+        func: pollForPrice,
+        args: [marker, Math.max(500, deadline - Date.now())],
+      });
+      const data = res && res.result;
+      if (data && data.price > 0) {
+        console.log('[DarazBG] Scraped via single tab:', url, '→', data.price);
+        return { ...data, source: 'single-tab' };
       }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-  });
-
-  // Landed on the captcha page → stop, don't try to get past it
-  try {
-    const t = await chrome.tabs.get(tabId);
-    if (isBlockPage(t.url)) return { blocked: true };
-  } catch (_) {}
-
-  // Smart polling: inject a script that polls every 200ms until the price
-  // element appears (or 6s max). Stops the moment price is found — no fixed wait.
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        return new Promise((resolve) => {
-          const MAX_MS = 6000;
-          const INTERVAL = 200;
-          const started = Date.now();
-
-          const getStrPrice = (str) => {
-            const s = str.trim().replace(/^[^\d]+/, '').replace(/,/g, '');
-            return parseFloat(s) || 0;
-          };
-
-          const check = () => {
-            const priceEl = document.querySelector('.pdp-price_type_normal');
-            if (priceEl && priceEl.innerText.trim()) {
-              const current = getStrPrice(priceEl.innerText);
-              if (current > 0) {
-                const origPriceEl = document.querySelector('.pdp-price_type_deleted');
-                const original = origPriceEl ? (getStrPrice(origPriceEl.innerText) || current) : current;
-                const soldOut = !!document.querySelector('.pdp-mod-soldout, .pdp-mod-product-unavailable');
-                resolve({ price: current, originalPrice: original, inStock: !soldOut });
-                return true;
-              }
-            }
-            if (Date.now() - started >= MAX_MS) {
-              resolve(null);
-              return true;
-            }
-            return false;
-          };
-
-          if (!check()) {
-            const iv = setInterval(() => { if (check()) clearInterval(iv); }, INTERVAL);
-          }
-        });
-      }
-    });
-    const data = results && results[0] && results[0].result;
-    if (data && data.price > 0) {
-      console.log('[DarazBG] Scraped via single tab:', url, '→', data.price);
-      return { ...data, source: 'single-tab' };
+      if (data && data.gaveUp) break;  // right page, but no price ever appeared
+    } catch (_) {
+      // Page swapped mid-navigation ("frame removed") — just retry
     }
-  } catch (err) {
-    console.warn('[DarazBG] Script inject error:', err.message);
+    await sleep(250);
   }
+  console.warn('[DarazBG] Hidden tab found no price for:', url);
   return null;
 }
 
@@ -481,9 +460,71 @@ function buildWorklist(favorites, history) {
   return [...map.values()];
 }
 
+// Apply one batch of {entry, result} to storage (fresh read-modify-write,
+// so anything content.js saved meanwhile is kept), then send notifications.
+async function applyResults(batch) {
+  const fresh = await new Promise(res => chrome.storage.local.get(['favorites', 'recently_viewed'], res));
+  const favorites = fresh.favorites || {};
+  const history = fresh.recently_viewed || [];
+  const notices = [];
+  let changed = 0;
+  const ts = Date.now();
+
+  for (const { entry, result } of batch) {
+    const fav = favorites[entry.key];
+    if (fav) {
+      const newPrice = result.price;
+      const oldPrice = fav.currentPrice || fav.price;
+      fav.title = cleanTitle(fav.title);
+      fav.lastUpdated = ts;
+      fav.currentPrice = newPrice;
+      fav.price = newPrice;
+      if (result.originalPrice) fav.originalPrice = result.originalPrice;
+
+      const wasInStock = fav.inStock !== false;
+      fav.inStock = result.inStock;
+      if (!wasInStock && fav.inStock) {
+        fav.justRestocked = true;
+        notices.push(() => notifyBackInStock({ key: entry.key, title: fav.title }));
+      }
+
+      fav.lowestPrice  = Math.min(fav.lowestPrice  || newPrice, newPrice);
+      fav.highestPrice = Math.max(fav.highestPrice || newPrice, newPrice);
+
+      if (newPrice !== oldPrice) {
+        fav.priceHistory = fav.priceHistory || [];
+        fav.priceHistory.push({ price: newPrice, ts });
+        changed++;
+        if (newPrice < oldPrice) {
+          notices.push(() => notifyPriceDrop({
+            key: entry.key, title: fav.title, currency: fav.currency, oldPrice, newPrice, targetPrice: fav.targetPrice || 0
+          }));
+        }
+      }
+    }
+
+    const h = history.find(x => (x.key || `${x.itemId}_${x.skuId}`) === entry.key);
+    if (h) {
+      h.title = cleanTitle(h.title);
+      h.price = result.price;
+      h.currentPrice = result.price;
+      if (result.originalPrice) h.originalPrice = result.originalPrice;
+      h.inStock = result.inStock;
+      h.lastUpdated = ts;
+    }
+  }
+
+  await new Promise(res => chrome.storage.local.set({ favorites, recently_viewed: history }, res));
+  for (const n of notices) await n();
+  return changed;
+}
+
 // ── Main refresh loop — updates every favorite AND every history item ─────
 // Polite by design: at most CONCURRENCY requests at once with random gaps,
-// stops the moment Daraz rate-limits us, and writes storage once at the end.
+// stops the moment Daraz rate-limits us. Prices are saved every SAVE_EVERY
+// items so the dashboard fills in while the sync is still running.
+const SAVE_EVERY = 5;
+
 async function refreshAllTracked(allowWindowFallback = false, forceSync = false) {
   const initial = await new Promise(res =>
     chrome.storage.local.get(['favorites', 'recently_viewed', 'sync_blocked_until'], res)
@@ -523,8 +564,28 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
   const total = worklist.length;
   let doneCount = 0;
   let blocked = false;
+  let changed = 0;
   const tick = () => chrome.runtime.sendMessage({ action: 'sync_progress', done: doneCount, total }).catch(() => {});
   tick(); // banner appears right away
+
+  // Batched saving — saves run one after another so they never overwrite each other
+  let pending = [];
+  let saveChain = Promise.resolve();
+  const flush = () => {
+    if (!pending.length) return;
+    const batch = pending;
+    pending = [];
+    saveChain = saveChain.then(() => applyResults(batch)).then(n => { changed += n; })
+      .catch(err => console.warn('[DarazBG] Save failed:', err.message));
+  };
+  const got = (entry, result) => {
+    pending.push({ entry, result });
+    if (pending.length >= SAVE_EVERY) flush();
+  };
+
+  // Timing stats so slow syncs can be diagnosed (shown in dashboard Settings)
+  const stats = { total, http: 0, httpMs: 0, hiddenTab: 0, hiddenTabMs: 0, failed: 0, ms: 0, blocked: false, ts: now };
+  const t0 = Date.now();
 
   // Phase 1: plain HTTP, a few at a time with random gaps
   const rawResults = await runPool(worklist, CONCURRENCY, async (entry) => {
@@ -533,84 +594,48 @@ async function refreshAllTracked(allowWindowFallback = false, forceSync = false)
     if (blocked) return { entry, result: null };
     const result = await fetchProductPrice(entry);
     if (result && result.blocked) { blocked = true; return { entry, result: null }; }
-    if (result) { doneCount++; tick(); }
+    if (result) { doneCount++; tick(); got(entry, result); }
     return { entry, result };
   });
+  stats.http = rawResults.filter(r => r.result).length;
+  stats.httpMs = Date.now() - t0;
 
   // Phase 2: items HTTP couldn't price → hidden single tab, one by one
-  const domResults = [];
-  if (allowWindowFallback && !blocked) {
-    for (const { entry } of rawResults.filter(r => !r.result)) {
-      await randomGap(DOM_GAP_MS);
-      const result = await scrapeUrlViaSingleTab(entry.url);
-      if (result && result.blocked) { blocked = true; break; }
-      doneCount++; tick();
-      domResults.push({ entry, result });
+  const needsDom = rawResults.filter(r => !r.result);
+  const t1 = Date.now();
+  if (allowWindowFallback && !blocked && needsDom.length) {
+    try {
+      for (const { entry } of needsDom) {
+        await randomGap(DOM_GAP_MS);
+        const result = await scrapeUrlViaSingleTab(entry.url);
+        if (result && result.blocked) { blocked = true; break; }
+        doneCount++; tick();
+        if (result) { stats.hiddenTab++; got(entry, result); }
+      }
+    } catch (err) {
+      // Fallback failing must never throw away the prices Phase 1 already got
+      console.warn('[DarazBG] Hidden-tab fallback failed, skipping:', err.message);
+    } finally {
+      await _destroyScraperTab();
     }
-    await _destroyScraperTab();
   }
+  stats.hiddenTabMs = Date.now() - t1;
 
-  const allResults = [...rawResults.filter(r => r.result), ...domResults.filter(r => r.result)];
+  flush();
+  await saveChain;
 
-  // Apply everything in ONE read-modify-write (fresh read, so nothing the
-  // content script saved during the sync is lost), then notify.
-  const fresh = await new Promise(res => chrome.storage.local.get(['favorites', 'recently_viewed'], res));
-  const favorites = fresh.favorites || {};
-  const history = fresh.recently_viewed || [];
-  const notices = [];
-  let updatedCount = 0;
+  stats.ms = Date.now() - t0;
+  stats.failed = total - stats.http - stats.hiddenTab;
+  stats.blocked = blocked;
   const ts = Date.now();
-
-  for (const { entry, result } of allResults) {
-    const fav = favorites[entry.key];
-    if (fav) {
-      const newPrice = result.price;
-      const oldPrice = fav.currentPrice || fav.price;
-      fav.title = cleanTitle(fav.title);
-      fav.lastUpdated = ts;
-      fav.currentPrice = newPrice;
-      fav.price = newPrice;
-      if (result.originalPrice) fav.originalPrice = result.originalPrice;
-
-      const wasInStock = fav.inStock !== false;
-      fav.inStock = result.inStock;
-      if (!wasInStock && fav.inStock) {
-        fav.justRestocked = true;
-        notices.push(() => notifyBackInStock({ key: entry.key, title: fav.title }));
-      }
-
-      fav.lowestPrice  = Math.min(fav.lowestPrice  || newPrice, newPrice);
-      fav.highestPrice = Math.max(fav.highestPrice || newPrice, newPrice);
-
-      if (newPrice !== oldPrice) {
-        fav.priceHistory = fav.priceHistory || [];
-        fav.priceHistory.push({ price: newPrice, ts });
-        updatedCount++;
-        if (newPrice < oldPrice) {
-          notices.push(() => notifyPriceDrop({
-            key: entry.key, title: fav.title, currency: fav.currency, oldPrice, newPrice, targetPrice: fav.targetPrice || 0
-          }));
-        }
-      }
-    }
-
-    const h = history.find(x => (x.key || `${x.itemId}_${x.skuId}`) === entry.key);
-    if (h) {
-      h.title = cleanTitle(h.title);
-      h.price = result.price;
-      h.currentPrice = result.price;
-      if (result.originalPrice) h.originalPrice = result.originalPrice;
-      h.inStock = result.inStock;
-      h.lastUpdated = ts;
-    }
-  }
-
-  const update = { favorites, recently_viewed: history, last_refresh_ts: ts };
+  const update = { last_refresh_ts: ts, last_sync_stats: stats };
   if (blocked) update.sync_blocked_until = ts + BLOCK_COOLDOWN_MS;
   await new Promise(res => chrome.storage.local.set(update, res));
-  for (const n of notices) await n();
 
   doneCount = total; tick(); // banner reaches 100%
-  console.log('[DarazBG] Refresh complete.', allResults.length, 'priced,', updatedCount, 'changed', blocked ? '— STOPPED: rate-limited' : '');
+  console.log(`[DarazBG] Refresh complete in ${(stats.ms / 1000).toFixed(1)}s —`,
+    `${stats.http} via HTTP (${(stats.httpMs / 1000).toFixed(1)}s),`,
+    `${stats.hiddenTab} via hidden tab (${(stats.hiddenTabMs / 1000).toFixed(1)}s),`,
+    `${stats.failed} failed, ${changed} price changes`, blocked ? '— STOPPED: rate-limited' : '');
   return blocked ? { blocked: true, until: update.sync_blocked_until } : { ok: true };
 }

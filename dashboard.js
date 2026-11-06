@@ -112,12 +112,13 @@ function el(tag, cls, text) {
 
 // ── Load data ───────────────────────────────────────────────────────────────
 async function load() {
-  const d = await store.get(['favorites', 'recently_viewed', 'settings', 'last_refresh_ts']);
+  const d = await store.get(['favorites', 'recently_viewed', 'settings', 'last_refresh_ts', 'last_sync_stats']);
   data = {
     favorites: d.favorites || {},
     history: d.recently_viewed || [],
     settings: d.settings || {},
     lastRefresh: d.last_refresh_ts || null,
+    syncStats: d.last_sync_stats || null,
   };
   document.documentElement.setAttribute('data-theme', data.settings.theme === 'light' ? 'light' : 'dark');
 }
@@ -697,6 +698,16 @@ function renderSettings() {
   $('last-refresh-val').textContent = timeAgo(data.lastRefresh);
   $('fav-tracked-val').textContent = Object.keys(data.favorites).length;
   $('current-history-count').textContent = data.history.length;
+  // e.g. "23 items in 14s · 20 quick (6s) · 2 hidden tab (8s) · 1 failed"
+  const st = data.syncStats;
+  const sec = (ms) => Math.round(ms / 1000) + 's';
+  $('sync-stats-val').textContent = !st ? '—' : [
+    `${st.total} items in ${sec(st.ms)}`,
+    `${st.http} quick (${sec(st.httpMs)})`,
+    st.hiddenTab ? `${st.hiddenTab} hidden tab (${sec(st.hiddenTabMs)})` : null,
+    st.failed ? `${st.failed} failed` : null,
+    st.blocked ? 'paused by Daraz' : null,
+  ].filter(Boolean).join(' · ');
   showNextRefresh();
 }
 $('settings-btn').onclick = () => { renderSettings(); openModal('settings-modal'); };
