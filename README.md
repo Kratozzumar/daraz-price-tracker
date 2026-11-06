@@ -160,9 +160,9 @@ daraz-price-tracker/
 ├── manifest.json      # Extension config (Manifest V3)
 ├── content.js         # Runs on Daraz pages — scrapes prices, promos, stock status
 ├── background.js      # Service worker — alarms, notifications, smart refresh engine
-├── popup.html         # Extension popup UI structure
-├── popup.css          # Styling — dark/light themes, glassmorphism, animations
-├── popup.js           # Popup logic — views, charts, comparison, settings, progress banner
+├── dashboard.html     # Full-page dashboard (opens in a tab from the toolbar icon)
+├── dashboard.css      # Dashboard styling — dark/light themes, product grid
+├── dashboard.js       # Dashboard logic — grid, detail chart, compare, settings, live updates
 ├── icon48.png         # Toolbar icon (48×48)
 └── icon128.png        # Extension page icon (128×128)
 ```

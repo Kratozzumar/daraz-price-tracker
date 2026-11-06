@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Daraz Price Tracker",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "description": "Track Daraz prices privately on your machine — price targets, comparisons, multi-currency and more.",
   "permissions": [
     "storage",
@@ -37,7 +37,7 @@
     "128": "icon128.png"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "Open Daraz Price Tracker",
     "default_icon": {
       "48": "icon48.png",
       "128": "icon128.png"

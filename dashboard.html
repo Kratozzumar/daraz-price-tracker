@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daraz Price Tracker</title>
+  <link rel="icon" href="icon48.png">
+  <!-- No web fonts: system fonts render instantly (the old popup waited on Google Fonts) -->
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+  <!-- ── Top bar ── -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="icon48.png" alt="" width="28" height="28">
+        <span>Daraz Tracker</span>
+      </div>
+      <label class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search-input" type="search" placeholder="Search your products…" autocomplete="off">
+      </label>
+      <div class="topbar-actions">
+        <button id="refresh-btn" class="btn" title="Refresh prices (Shift+Click = force sync all)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+          <span>Refresh</span>
+        </button>
+        <button id="settings-btn" class="btn btn-icon" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Sync progress -->
+    <div id="sync-banner" class="sync hidden">
+      <span id="sync-label">Syncing…</span>
+      <div class="sync-track"><div id="sync-bar" class="sync-bar"></div></div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <!-- ── Summary stats ── -->
+    <section class="stats">
+      <div class="stat"><div class="stat-k">Favorites</div><div id="s-favs" class="stat-v">0</div></div>
+      <div class="stat"><div class="stat-k">Recently viewed</div><div id="s-hist" class="stat-v">0</div></div>
+      <div class="stat"><div class="stat-k">Price drops</div><div id="s-drops" class="stat-v good">0</div></div>
+      <div class="stat"><div class="stat-k">At / below target</div><div id="s-target" class="stat-v good">0</div></div>
+      <div class="stat"><div class="stat-k">Last refresh</div><div id="s-refresh" class="stat-v small">Never</div></div>
+    </section>
+
+    <!-- ── Tabs + toolbar ── -->
+    <section class="toolbar">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="favs">Favorites <span id="fav-count" class="count">0</span></button>
+        <button class="tab" data-tab="history">History <span id="hist-count" class="count">0</span></button>
+      </div>
+      <div class="toolbar-right">
+        <select id="sort-select" class="select" title="Sort">
+          <option value="recent">Recently updated</option>
+          <option value="price_asc">Price: Low → High</option>
+          <option value="price_desc">Price: High → Low</option>
+          <option value="discount">Biggest discount</option>
+          <option value="name">Name A–Z</option>
+        </select>
+        <button id="compare-mode-btn" class="btn" title="Pick 2–3 favorites to compare">Compare</button>
+        <button id="share-wishlist-btn" class="btn" title="Copy wishlist to clipboard">Share</button>
+      </div>
+    </section>
+
+    <div id="tag-filter" class="chips hidden"></div>
+
+    <!-- ── Product grid ── -->
+    <section id="grid" class="grid"></section>
+    <div id="empty" class="empty hidden">
+      <p id="empty-title">Nothing here yet.</p>
+      <small id="empty-sub">Visit any Daraz product page and it will appear here automatically.</small>
+    </div>
+
+    <footer class="footer">🔒 100% private — all data stays on this device</footer>
+  </main>
+
+  <!-- ── Compare bar ── -->
+  <div id="compare-bar" class="compare-bar hidden">
+    <span id="compare-count">0 selected</span>
+    <button id="do-compare-btn" class="btn btn-primary" disabled>Compare</button>
+    <button id="cancel-compare-btn" class="btn">Cancel</button>
+  </div>
+
+  <!-- ══ Product detail modal ══ -->
+  <div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box wide">
+      <button class="modal-close" data-close aria-label="Close">×</button>
+      <div id="sale-banner" class="banner hidden"></div>
+      <div class="detail-top">
+        <div class="detail-img"><img id="d-img" alt=""></div>
+        <div class="detail-info">
+          <h2 id="d-title"></h2>
+          <div class="price-row">
+            <span id="d-price" class="price-big"></span>
+            <span id="d-orig" class="orig hidden"></span>
+            <span id="d-disc" class="badge sale hidden"></span>
+            <span id="d-trend"></span>
+          </div>
+          <div id="d-shipping" class="muted hidden"></div>
+          <div id="d-seller" class="muted hidden"></div>
+          <div id="d-fake" class="warn hidden">⚠️ Seller may have inflated the original price to fake this discount</div>
+          <div id="d-deal" class="hidden"></div>
+          <div id="d-promos" class="chips hidden"></div>
+          <a id="d-visit" class="btn btn-primary" target="_blank" rel="noopener">View on Daraz ↗</a>
+        </div>
+      </div>
+
+      <div class="detail-stats">
+        <div class="stat"><div class="stat-k">Lowest</div><div id="d-low" class="stat-v good"></div></div>
+        <div class="stat"><div class="stat-k">Highest</div><div id="d-high" class="stat-v bad"></div></div>
+        <div class="stat"><div class="stat-k">Data points</div><div id="d-points" class="stat-v"></div></div>
+        <div class="stat"><div class="stat-k">Change</div><div id="d-pct" class="stat-v"></div></div>
+      </div>
+
+      <div class="chart-wrap">
+        <svg id="chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
+        <div id="chart-tip" class="chart-tip hidden"></div>
+        <div id="chart-labels" class="chart-labels"></div>
+        <div id="chart-empty" class="muted center hidden">Not enough price data yet — revisit later to build history.</div>
+      </div>
+
+      <!-- Favorites-only controls -->
+      <div id="fav-controls">
+        <div class="row">
+          <div class="field">
+            <label>🎯 Target price</label>
+            <div id="target-edit" class="inline">
+              <input id="target-input" type="number" min="0" placeholder="e.g. 4999" class="input">
+              <button id="save-target-btn" class="btn btn-primary">Save</button>
+            </div>
+            <div id="target-show" class="inline hidden">
+              <span id="target-val" class="pill"></span>
+              <button id="clear-target-btn" class="btn">Clear</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>🏷️ Tags</label>
+            <div class="inline">
+              <div id="tags-list" class="chips"></div>
+              <input id="tag-input" class="input small" placeholder="Add tag" maxlength="15">
+              <button id="add-tag-btn" class="btn">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="not-fav-note" class="muted hidden">⭐ Add this item to Favorites to get price history, target alerts and tags.</div>
+    </div>
+  </div>
+
+  <!-- ══ Compare modal ══ -->
+  <div id="compare-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box wide">
+      <button class="modal-close" data-close aria-label="Close">×</button>
+      <h2>Compare</h2>
+      <div class="table-scroll"><table class="compare-table"><thead><tr id="compare-head"></tr></thead><tbody id="compare-body"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ══ Settings modal ══ -->
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <button class="modal-close" data-close aria-label="Close">×</button>
+      <h2>Settings</h2>
+
+      <div class="set">
+        <div class="set-k">Auto-refresh interval</div>
+        <div class="set-d">How often favorite prices are checked in the background</div>
+        <div class="segmented" id="interval-group">
+          <button data-minutes="60">1h</button><button data-minutes="180">3h</button><button data-minutes="360">6h</button><button data-minutes="720">12h</button><button data-minutes="1440">24h</button>
+        </div>
+      </div>
+
+      <div class="set">
+        <div class="set-k">Refresh status</div>
+        <div class="kv"><span>Last refreshed</span><b id="last-refresh-val">Never</b></div>
+        <div class="kv"><span>Next refresh</span><b id="next-refresh-val">—</b></div>
+        <div class="kv"><span>Favorites tracked</span><b id="fav-tracked-val">0</b></div>
+      </div>
+
+      <div class="set">
+        <div class="set-k">History limit</div>
+        <div class="set-d">Currently storing <b id="current-history-count">0</b> items</div>
+        <div class="segmented" id="history-limit-group">
+          <button data-limit="10">10</button><button data-limit="20">20</button><button data-limit="50">50</button><button data-limit="100">100</button>
+        </div>
+      </div>
+
+      <div class="set">
+        <div class="set-k">Theme</div>
+        <div class="segmented" id="theme-group">
+          <button data-theme="dark">Dark</button><button data-theme="light">Light</button>
+        </div>
+      </div>
+
+      <div class="set set-row">
+        <div>
+          <div class="set-k">Price drop alerts</div>
+          <div class="set-d">Desktop notification when a favorite gets cheaper</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="notif-toggle"><span></span></label>
+      </div>
+
+      <div class="set">
+        <div class="set-k">Backup</div>
+        <div class="set-d">Export your data or import a backup (import merges, never overwrites)</div>
+        <div class="inline">
+          <button id="export-json-btn" class="btn">Export JSON</button>
+          <button id="export-csv-btn" class="btn">Export CSV</button>
+          <button id="import-btn" class="btn">Import</button>
+          <input type="file" id="import-file" accept=".json" hidden>
+        </div>
+      </div>
+
+      <div class="set">
+        <div class="set-k danger">Clear all data</div>
+        <div class="set-d">Wipe all history, favorites and price records from this device</div>
+        <button id="clear-data-btn" class="btn btn-danger">Clear All Data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Confirm modal ══ -->
+  <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box narrow center">
+      <h2>Clear all data?</h2>
+      <p class="muted">This permanently deletes all tracked items, price history and favorites. Export a backup first if unsure.</p>
+      <div class="inline center">
+        <button id="confirm-cancel" class="btn">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Yes, clear all</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

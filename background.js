@@ -17,6 +17,18 @@ chrome.runtime.onStartup.addListener(() => {
   scheduleAlarm();
 });
 
+// ── Toolbar icon → open the full-page dashboard (reuse the tab if already open) ──
+chrome.action.onClicked.addListener(async () => {
+  const url = chrome.runtime.getURL('dashboard.html');
+  const [existing] = await chrome.tabs.query({ url });
+  if (existing) {
+    await chrome.tabs.update(existing.id, { active: true });
+    await chrome.windows.update(existing.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url });
+  }
+});
+
 async function scheduleAlarm(intervalMinutes) {
   if (!intervalMinutes) {
     const data = await new Promise(res => chrome.storage.local.get('settings', res));
