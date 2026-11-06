@@ -6,7 +6,7 @@ A feature-rich Chrome extension that automatically tracks prices when you browse
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-brightgreen)
-![Version](https://img.shields.io/badge/Version-4.0.0-orange)
+![Version](https://img.shields.io/badge/Version-5.0.0-orange)
 ![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-10b981)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Mac%20%7C%20Linux-blue)
 
@@ -157,7 +157,7 @@ The extension correctly captures Flash Sale discounted prices. When Force Syncin
 
 ```
 daraz-price-tracker/
-├── manifest.json      # Extension config (Manifest V3)
+├── manifest.json      # Extension config (Manifest V3, v5.0.0)
 ├── content.js         # Runs on Daraz pages — scrapes prices, promos, stock status
 ├── background.js      # Service worker — alarms, notifications, smart refresh engine
 ├── dashboard.html     # Full-page dashboard (opens in a tab from the toolbar icon)
@@ -187,24 +187,31 @@ background.js alarm fires
   → Checks against target prices
   → Sends Chrome notifications for drops / back-in-stock / target hit
 
-── Force Sync (manual, Shift+Click) ──────────────────────────────────
-  → Ignores 2-hour cache — refreshes everything
-  → Phase 1: All items fetched via raw HTTP in parallel (instant, no tabs)
+── Force Sync (manual) ────────────────────────────────────────────────
+  → Ignores cache — refreshes everything
+  → Favorites are always processed first (so they're updated even if Daraz cuts off the sync)
+  → Phase 1: HTTP fetches run 3 at a time with random gaps (polite concurrency)
+             Results are streamed to storage in rolling batches as they come in
   → Phase 2: Items with JS-rendered prices (Flash Sales) loaded one by one
              in a single invisible minimized popup window using chrome.tabs.update
              (navigates the same tab through each URL — never creates new tabs)
   → Smart polling: checks for price every 200ms, stops when found (max 6s)
-  → Live progress banner in popup: "Syncing 8 of 15…" with animated bar
-  → Ghost window destroyed when all items are done
-  → Banner shows "✓ Sync complete" then auto-hides and refreshes the list
+  → Rate-limit detection: if Daraz returns 429/403 or a captcha page, sync stops
+                           immediately and is paused for 1 hour (sync_blocked_until)
+  → Timing stats saved to storage (last_sync_stats) for diagnostics in Settings
+  → Live progress bar in dashboard: "Syncing 8 of 15…" with animated bar
+  → Ghost window destroyed in finally-block — always cleaned up even if scraping fails
+  → Progress bar reaches 100% and refreshes the product grid automatically
 
-── Popup UI ──────────────────────────────────────────────────────────
-popup.js renders the UI
-  → History & Favorites lists with search/sort/filter
-  → Price detail view with enhanced SVG charts
-  → Price comparison table
-  → Settings with theme, export/import, tags
-  → Live sync progress banner (listens for sync_progress messages from background)
+── Dashboard UI ──────────────────────────────────────────────────────
+Clicking the toolbar icon opens dashboard.html as a full browser tab
+  (If the tab is already open, it is focused instead of duplicated)
+  → Product grid with sparklines, deal badges, trend indicators
+  → Detail modal with enhanced SVG price-history chart
+  → Price comparison table (up to 3 items side-by-side)
+  → Settings: theme, export/import, sync stats, tag filter
+  → Live sync progress bar (listens for sync_progress messages from background)
+  → Live updates via storage.onChanged — no polling needed
 ```
 
 ---
@@ -259,6 +266,21 @@ This extension is built with **privacy-first** principles:
 ---
 
 ## 🔄 Changelog
+
+### v5.1.0 — Smarter Sync Engine
+- 🌊 **Streaming saves** — prices written to storage in rolling batches as they arrive (not all at the end), so progress is visible immediately and no data is lost if sync is interrupted
+- 📊 **Sync diagnostics** — timing stats (HTTP phase ms, hidden-tab phase ms, items failed) saved as `last_sync_stats` and shown in Settings
+- 🛡️ **Resilient hidden-tab fallback** — DOM scraping phase wrapped in try/catch/finally; a scraping crash can no longer discard prices already fetched in Phase 1
+- ⚡ **Instant rate-limit bail-out** — `blocked` flag gates both phases; stops mid-gap without waiting for random delay to expire
+
+### v5.0.0 — Full-Page Dashboard
+- 🖥️ **Full-page dashboard** replaces the small popup — toolbar icon opens `dashboard.html` as a proper browser tab
+- 🔁 **Smart tab reuse** — if dashboard is already open, clicking the icon focuses it instead of opening a duplicate
+- 🃏 **Product grid UI** — card-based layout with inline sparklines, deal badges, trend arrows and discount pills
+- ⚡ **Live storage updates** — dashboard listens to `chrome.storage.onChanged`, no polling required
+- 🚫 **Rate-limit backoff** — detects 429 / 403 / captcha; pauses all syncs for 1 hour automatically
+- 🤝 **Polite concurrency** — HTTP fetches capped at 3 simultaneous with random gaps between requests
+- 🏆 **Favorites-first ordering** — favorites are always synced before history items
 
 ### v4.0.0 — Smart Refresh Engine
 - ⚡ **Force Sync** (Shift+Click refresh) — bypasses cache and re-fetches all items immediately
